@@ -73,6 +73,241 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
   let aChangeWasMade = false;
 
+  // BATCH PROCESSING - only on first call (depth 0, !isRetry)
+  // This processes all visible fields at once for efficiency
+  if (depth === 0 && !isRetry) {
+    console.log('[Gemini Filler] Starting batch processing mode...');
+
+    const batchQuestions = [];
+    const batchElements = [];
+    const batchMetadata = []; // Store element metadata
+
+    // Collect all questions
+    for (const element of formElements) {
+      if (processedElements.has(element)) continue;
+      if (!document.contains(element)) continue;
+
+      // Skip special types that need individual handling
+      if (element.type === 'file' || element.type === 'radio' || element.type === 'checkbox') {
+        continue;
+      }
+
+      const question = getQuestionForInput(element);
+      if (!question) continue;
+
+      let optionsText = null;
+      try {
+        if (element.tagName === 'SELECT') {
+          optionsText = Array.from(element.options).map(o => o.text).filter(t => t.trim());
+        } else if (element.getAttribute('role') === 'radiogroup') {
+          const radioButtons = element.querySelectorAll('button[role="radio"]');
+          optionsText = Array.from(radioButtons).map(rb => {
+            const label = document.querySelector(`label[for="${rb.id}"]`) || rb.closest('div')?.querySelector('label');
+            return label ? label.textContent.trim() : rb.getAttribute('aria-label') || '';
+          }).filter(t => t);
+        } else if (element.tagName === 'BUTTON' && element.getAttribute('aria-haspopup') === 'dialog') {
+          // Custom dropdown - we'll handle these individually later
+          continue;
+        }
+      } catch (error) {
+        console.warn('[Gemini Filler] Error extracting options:', error);
+        continue;
+      }
+
+      batchQuestions.push({
+        question: question,
+        options: optionsText
+      });
+      batchElements.push(element);
+      batchMetadata.push({ optionsText });
+    }
+
+    if (batchQuestions.length > 0) {
+      console.log(`[Gemini Filler] Collected ${batchQuestions.length} questions for batch processing`);
+
+      // Get batch answers from AI
+      const batchAnswers = await getBatchAIResponse(batchQuestions, userData);
+
+      // Fill all fields from batch
+      for (let i = 0; i < batchElements.length; i++) {
+        const element = batchElements[i];
+        const answer = batchAnswers[i];
+        const metadata = batchMetadata[i];
+
+        if (!answer || answer === '') {
+          console.log(`[Gemini Filler] No batch answer for: "${batchQuestions[i].question}"`);
+          continue;
+        }
+
+        processedElements.add(element);
+
+        try {
+          console.log(`[Gemini Filler] Batch filling: "${batchQuestions[i].question}" = "${answer}"`);
+
+          if (element.tagName === 'SELECT') {
+            const bestMatchText = findBestMatch(answer, metadata.optionsText);
+            if (bestMatchText) {
+              const bestMatchOption = Array.from(element.options).find(o => o.text === bestMatchText);
+              if (bestMatchOption) {
+                element.value = bestMatchOption.value;
+                // Add small delay before events to prevent stack overflow
+                await new Promise(resolve => setTimeout(resolve, 50));
+                element.dispatchEvent(new Event('input', { bubbles: true }));
+                element.dispatchEvent(new Event('change', { bubbles: true }));
+                aChangeWasMade = true;
+              }
+            }
+          } else if (element.getAttribute('role') === 'radiogroup') {
+            const radioButtons = Array.from(element.querySelectorAll('button[role="radio"]'));
+            const optionDetails = radioButtons.map(rb => {
+              const label = document.querySelector(`label[for="${rb.id}"]`) || rb.closest('div')?.querySelector('label');
+              return {
+                button: rb,
+                text: label ? label.textContent.trim() : rb.getAttribute('aria-label') || ''
+              };
+            });
+
+            const bestMatchText = findBestMatch(answer, optionDetails.map(o => o.text));
+            if (bestMatchText) {
+              const matchingOption = optionDetails.find(o => o.text === bestMatchText);
+              if (matchingOption) {
+                matchingOption.button.click();
+                aChangeWasMade = true;
+              }
+            }
+          } else {
+            element.value = answer;
+            await new Promise(resolve => setTimeout(resolve, 50));
+            element.dispatchEvent(new Event('input', { bubbles: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true }));
+            aChangeWasMade = true;
+          }
+
+          // Capture for learning (source is 'ai' from batch)
+          if (typeof captureQuestion === 'function') {
+            try {
+              const capturedHash = await captureQuestion(element, answer);
+              if (capturedHash && typeof addFeedbackButton === 'function') {
+                addFeedbackButton(element, capturedHash);
+              }
+            } catch (err) {
+              console.warn('[Gemini Filler] Error capturing batch question:', err);
+            }
+          }
+        } catch (error) {
+          console.error(`[Gemini Filler] Error filling batch element:`, error);
+        }
+      }
+    }
+
+    // Now handle special types individually
+    for (const element of formElements) {
+      if (processedElements.has(element)) continue;
+      if (!document.contains(element)) continue;
+
+      try {
+        if (element.type === 'file') {
+          const question = getQuestionForInput(element);
+          const keywords = ['cv', 'resume', 'życiorys', 'załącz', 'plik'];
+          if (question && keywords.some(keyword => question.toLowerCase().includes(keyword))) {
+            await handleFileInput(element);
+            processedElements.add(element);
+          }
+          continue;
+        }
+
+        if (element.type === 'radio') {
+          await handleRadioButton(element, userData, processedElements);
+          continue;
+        }
+
+        if (element.type === 'checkbox') {
+          await handleCheckbox(element, userData);
+          processedElements.add(element);
+          continue;
+        }
+
+        // Custom dropdowns
+        if (element.tagName === 'BUTTON' && element.getAttribute('aria-haspopup') === 'dialog') {
+          const question = getQuestionForInput(element);
+          if (!question) continue;
+
+          processedElements.add(element);
+
+          try {
+            const result = await getAIResponse(question, userData, null);
+            const answer = result.answer;
+            if (!answer) continue;
+
+            element.click();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            const dialogId = element.getAttribute('aria-controls');
+            let optionsInDialog = [];
+            if (dialogId) {
+              const dialog = document.getElementById(dialogId);
+              if (dialog) {
+                optionsInDialog = Array.from(dialog.querySelectorAll('[role="option"]'));
+              }
+            } else {
+              optionsInDialog = Array.from(document.querySelectorAll('[role="option"]'));
+            }
+
+            const bestMatch = findBestMatch(answer, optionsInDialog.map(o => o.textContent));
+            if (bestMatch) {
+              const bestMatchElement = optionsInDialog.find(o => o.textContent === bestMatch);
+              if (bestMatchElement) {
+                bestMatchElement.click();
+                aChangeWasMade = true;
+              }
+            }
+          } catch (e) {
+            console.error(`[Gemini Filler] Error with custom dropdown:`, e);
+          }
+          continue;
+        }
+      } catch (error) {
+        console.error('[Gemini Filler] Error processing special element:', error);
+      }
+    }
+
+    // Recursively check for new fields
+    if (aChangeWasMade) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await fillFormWithAI(userData, processedElements, depth + 1, isRetry);
+    }
+
+    // Second verification pass
+    if (!isRetry) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const allFields = document.querySelectorAll('input:not([type="file"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="hidden"]), textarea, select');
+
+      let missedFields = [];
+      for (const field of allFields) {
+        if (!processedElements.has(field) &&
+            field.offsetParent !== null &&
+            !field.value &&
+            !field.disabled &&
+            !field.readOnly) {
+          missedFields.push(field);
+        }
+      }
+
+      if (missedFields.length > 0) {
+        console.log(`[Gemini Filler] Second pass: found ${missedFields.length} missed fields, retrying...`);
+        await fillFormWithAI(userData, processedElements, 0, true);
+      } else {
+        console.log('[Gemini Filler] Second pass: no missed fields found.');
+      }
+    }
+
+    return; // Exit early after batch processing
+  }
+
+  // INDIVIDUAL PROCESSING - for dynamic fields (depth > 0) or retry pass
+  console.log(`[Gemini Filler] Individual processing mode (depth: ${depth}, retry: ${isRetry})...`);
+
   for (const element of formElements) {
     if (processedElements.has(element)) {
       continue;
