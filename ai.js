@@ -1,9 +1,10 @@
 // Available Gemini models for rotation on rate limiting
+// Lite models first for faster responses
 const GEMINI_MODELS = [
-  'gemini-2.0-flash',
   'gemini-2.0-flash-lite',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite'
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-2.5-flash'
 ];
 
 // Current model index - rotates through models on 429 errors
@@ -50,25 +51,32 @@ async function getApiKey() {
 }
 
 async function getAIResponse(question, userData, options) {
+  // CHANGED: Try mock data first (from "Twoje dane"), then AI
+  // This is faster and cheaper than calling AI first
+  // Returns: { answer: string, source: 'mock' | 'ai' | 'empty' }
+  const mockAnswer = getMockAIResponse(question, userData, options);
+  if (mockAnswer) {
+    console.log('[Gemini Filler] Using mock response from user data');
+    return { answer: mockAnswer, source: 'mock' };
+  }
+
+  // If no mock answer, try AI
   const apiKey = await getApiKey();
 
   if (apiKey && apiKey !== 'TWOJ_KLUCZ_API' && apiKey !== 'YOUR_API_KEY_HERE') {
     try {
-      return await getRealAIResponse(question, userData, apiKey, options);
+      console.log('[Gemini Filler] No mock answer, trying AI...');
+      const aiAnswer = await getRealAIResponse(question, userData, apiKey, options);
+      return { answer: aiAnswer, source: 'ai' };
     } catch (error) {
-      // If AI fails (timeout, error, etc.), fallback to mock response
-      console.warn('[Gemini Filler] AI failed, falling back to mock response:', error.message);
-      const mockAnswer = getMockAIResponse(question, userData, options);
-      if (mockAnswer) {
-        return mockAnswer;
-      }
-      // If mock also can't answer, return empty string (skip field)
-      console.log('[Gemini Filler] No mock response available, skipping field');
-      return '';
+      // If AI fails (timeout, error, etc.), return empty (skip field)
+      console.warn('[Gemini Filler] AI failed:', error.message);
+      console.log('[Gemini Filler] Skipping field (no mock or AI answer available)');
+      return { answer: '', source: 'empty' };
     }
   } else {
-    console.log('[Gemini Filler] No API key configured, using mock responses. Set your API key in extension settings.');
-    return getMockAIResponse(question, userData, options);
+    console.log('[Gemini Filler] No API key configured and no mock response available. Set your API key in extension settings.');
+    return { answer: '', source: 'empty' };
   }
 }
 
