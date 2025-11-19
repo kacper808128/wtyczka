@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Recruitment Form Filler",
+  "version": "1.0",
+  "description": "Fills out recruitment forms automatically.",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://generativelanguage.googleapis.com/"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["ai.js", "content.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [ "data.json", "config.js", "styles.css" ],
+      "matches": [ "<all_urls>" ]
+    }
+  ]
+}
