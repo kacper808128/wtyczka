@@ -52,7 +52,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-async function fillFormWithAI(userData, processedElements = new Set(), depth = 0) {
+async function fillFormWithAI(userData, processedElements = new Set(), depth = 0, isRetry = false) {
   // Prevent infinite recursion
   const MAX_DEPTH = 10;
   if (depth >= MAX_DEPTH) {
@@ -130,6 +130,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
       let answer;
       let questionHash = null;
+      let answerSource = null; // 'learned', 'mock', 'ai'
 
       // First, try to get suggestion from learned questions
       if (typeof getSuggestionForField === 'function') {
@@ -138,6 +139,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           if (suggestion && suggestion.confidence > 0.75) {
             answer = suggestion.answer;
             questionHash = suggestion.questionHash;
+            answerSource = 'learned';
             console.log(`[Gemini Filler] Using learned answer for "${question}" (confidence: ${suggestion.confidence})`);
           }
         } catch (err) {
@@ -145,10 +147,12 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         }
       }
 
-      // If no learned answer, use AI
+      // If no learned answer, use AI/mock
       if (!answer) {
         try {
-          answer = await getAIResponse(question, userData, optionsText);
+          const result = await getAIResponse(question, userData, optionsText);
+          answer = result.answer;
+          answerSource = result.source;
         } catch (error) {
           console.error(`[Gemini Filler] AI error for question "${question}":`, error);
           // Continue to next field instead of failing completely
@@ -227,14 +231,23 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         // Capture the question and answer for learning
         if (typeof captureQuestion === 'function' && answer) {
           try {
-            await captureQuestion(element, answer);
-
-            // Add feedback button if we have a question hash
-            if (questionHash && typeof addFeedbackButton === 'function') {
-              addFeedbackButton(element, questionHash);
+            // captureQuestion now returns questionHash
+            const capturedHash = await captureQuestion(element, answer);
+            if (capturedHash && !questionHash) {
+              questionHash = capturedHash;
             }
           } catch (err) {
             console.warn('[Gemini Filler] Error capturing question for learning:', err);
+          }
+        }
+
+        // Add feedback button for learned and AI answers (not for mock data)
+        if (questionHash && typeof addFeedbackButton === 'function' &&
+            (answerSource === 'learned' || answerSource === 'ai')) {
+          try {
+            addFeedbackButton(element, questionHash);
+          } catch (err) {
+            console.warn('[Gemini Filler] Error adding feedback button:', err);
           }
         }
       } catch (error) {
@@ -250,7 +263,35 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
   // Recursively check for new fields, with depth tracking
   if (aChangeWasMade) {
     await new Promise(resolve => setTimeout(resolve, 1000));
-    await fillFormWithAI(userData, processedElements, depth + 1);
+    await fillFormWithAI(userData, processedElements, depth + 1, isRetry);
+  }
+
+  // Second verification pass - only on main call (depth 0) and not already a retry
+  // This catches any fields that were missed during the first pass
+  if (depth === 0 && !isRetry) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Check for missed empty fields
+    const allFields = document.querySelectorAll('input:not([type="file"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="hidden"]), textarea, select');
+
+    let missedFields = [];
+    for (const field of allFields) {
+      // Check if field is visible, not processed, and empty
+      if (!processedElements.has(field) &&
+          field.offsetParent !== null &&
+          !field.value &&
+          !field.disabled &&
+          !field.readOnly) {
+        missedFields.push(field);
+      }
+    }
+
+    if (missedFields.length > 0) {
+      console.log(`[Gemini Filler] Second pass: found ${missedFields.length} missed fields, retrying...`);
+      await fillFormWithAI(userData, processedElements, 0, true);
+    } else {
+      console.log('[Gemini Filler] Second pass: no missed fields found.');
+    }
   }
 }
 
@@ -430,7 +471,8 @@ async function handleRadioButton(radioElement, userData, processedElements) {
     const optionsText = options.map(o => o.text);
     let answer;
     try {
-      answer = await getAIResponse(question, userData, optionsText);
+      const result = await getAIResponse(question, userData, optionsText);
+      answer = result.answer;
     } catch (error) {
       console.error(`[Gemini Filler] AI error for radio group "${question}":`, error);
       return;
@@ -504,7 +546,8 @@ async function handleCheckbox(checkboxElement, userData) {
 
     let answer;
     try {
-      answer = await getAIResponse(modifiedQuestion, userData, ['Yes', 'No']);
+      const result = await getAIResponse(modifiedQuestion, userData, ['Yes', 'No']);
+      answer = result.answer;
     } catch (error) {
       console.error(`[Gemini Filler] AI error for checkbox "${question}":`, error);
       return;

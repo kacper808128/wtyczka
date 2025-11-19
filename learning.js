@@ -195,10 +195,10 @@ async function findSimilarQuestion(normalizedQuestion) {
  */
 async function captureQuestion(fieldElement, userAnswer) {
   try {
-    if (!fieldElement || !userAnswer) return;
+    if (!fieldElement || !userAnswer) return null;
 
     const questionText = findQuestionForField(fieldElement);
-    if (!questionText || questionText === 'Unknown question') return;
+    if (!questionText || questionText === 'Unknown question') return null;
 
     const normalizedQuestion = normalizeQuestion(questionText);
     const questionHash = generateHash(normalizedQuestion);
@@ -230,8 +230,12 @@ async function captureQuestion(fieldElement, userAnswer) {
       // Show notification for new question
       showNewQuestionNotification(questionText);
     }
+
+    // Return the questionHash so content.js can add feedback button
+    return questionHash;
   } catch (error) {
     console.error('[Learning] Error capturing question:', error);
+    return null;
   }
 }
 
