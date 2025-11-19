@@ -22,7 +22,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": [ "data.json", "config.js", "styles.css" ],
+      "resources": [ "data.json", "config.js", "styles.css", "learning.js" ],
       "matches": [ "<all_urls>" ]
     }
   ]

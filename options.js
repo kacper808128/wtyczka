@@ -392,12 +392,172 @@ function toggleApiKeyVisibility() {
     }
 }
 
+// --- Learned Questions Management ---
+
+async function displayLearnedQuestions(searchTerm = '') {
+  const questionsContainer = document.getElementById('questions-list');
+  const questions = await getLearnedQuestions();
+
+  // Filter by search term
+  let filtered = questions;
+  if (searchTerm) {
+    const lowerSearch = searchTerm.toLowerCase();
+    filtered = questions.filter(q =>
+      q.question_text.toLowerCase().includes(lowerSearch) ||
+      q.user_answer.toLowerCase().includes(lowerSearch)
+    );
+  }
+
+  // Sort by frequency (most used first)
+  filtered.sort((a, b) => b.frequency - a.frequency);
+
+  // Update stats
+  document.getElementById('total-questions').textContent = questions.length;
+  const avgConfidence = questions.length > 0
+    ? (questions.reduce((sum, q) => sum + q.confidence, 0) / questions.length * 100).toFixed(0)
+    : 0;
+  document.getElementById('avg-confidence').textContent = avgConfidence + '%';
+
+  if (filtered.length === 0) {
+    questionsContainer.innerHTML = '<p style="color: #999;">Brak wyuczonych pytań. Wypełnij formularz aby rozszerzenie zaczęło się uczyć.</p>';
+    return;
+  }
+
+  questionsContainer.innerHTML = filtered.map(q => `
+    <div class="question-card" data-hash="${q.question_hash}">
+      <div class="question-header">
+        <span class="question-text">${escapeHtml(q.question_text)}</span>
+        <span class="confidence-badge" style="background: ${getConfidenceColor(q.confidence)}">
+          ${Math.round(q.confidence * 100)}%
+        </span>
+      </div>
+      <div class="question-details">
+        <div><strong>Odpowiedź:</strong> <code>${escapeHtml(q.user_answer)}</code></div>
+        <div><strong>Użyto:</strong> ${q.frequency} ${q.frequency === 1 ? 'raz' : 'razy'}</div>
+        <div><strong>Ostatnio:</strong> ${formatDate(q.last_used)}</div>
+        <div><strong>Feedback:</strong> 👍 ${q.feedback_positive} / 👎 ${q.feedback_negative}</div>
+        <div><strong>Typ pola:</strong> ${q.field_type}</div>
+      </div>
+      <div class="question-actions">
+        <button onclick="editQuestion('${q.question_hash}')">✏️ Edytuj</button>
+        <button onclick="deleteQuestion('${q.question_hash}')">🗑️ Usuń</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function getConfidenceColor(confidence) {
+  if (confidence > 0.8) return '#4CAF50';
+  if (confidence > 0.5) return '#FFC107';
+  return '#F44336';
+}
+
+function formatDate(isoString) {
+  const date = new Date(isoString);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+
+  if (diffMins < 1) return 'przed chwilą';
+  if (diffMins < 60) return `${diffMins} min temu`;
+
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours} godz. temu`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays} dni temu`;
+
+  return date.toLocaleDateString('pl-PL');
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+async function editQuestion(questionHash) {
+  const questions = await getLearnedQuestions();
+  const question = questions.find(q => q.question_hash === questionHash);
+
+  if (!question) return;
+
+  const newAnswer = prompt(`Edytuj odpowiedź dla: "${question.question_text}"`, question.user_answer);
+
+  if (newAnswer !== null && newAnswer !== question.user_answer) {
+    question.user_answer = newAnswer;
+    await saveLearnedQuestions(questions);
+    await displayLearnedQuestions();
+    statusEl.textContent = 'Odpowiedź zaktualizowana!';
+    statusEl.style.color = 'green';
+    setTimeout(() => { statusEl.textContent = ''; statusEl.style.color = ''; }, 2000);
+  }
+}
+
+async function deleteQuestion(questionHash) {
+  if (!confirm('Czy na pewno chcesz usunąć to pytanie?')) return;
+
+  const questions = await getLearnedQuestions();
+  const filtered = questions.filter(q => q.question_hash !== questionHash);
+  await saveLearnedQuestions(filtered);
+  await displayLearnedQuestions();
+
+  statusEl.textContent = 'Pytanie usunięte!';
+  statusEl.style.color = 'green';
+  setTimeout(() => { statusEl.textContent = ''; statusEl.style.color = ''; }, 2000);
+}
+
+async function handleExport() {
+  await exportLearnedQuestions();
+  statusEl.textContent = 'Pytania wyeksportowane!';
+  statusEl.style.color = 'green';
+  setTimeout(() => { statusEl.textContent = ''; statusEl.style.color = ''; }, 2000);
+}
+
+async function handleImport(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const result = await importLearnedQuestions(e.target.result);
+      if (result.success) {
+        await displayLearnedQuestions();
+        statusEl.textContent = `Zaimportowano ${result.imported} nowych pytań!`;
+        statusEl.style.color = 'green';
+      } else {
+        statusEl.textContent = `Błąd importu: ${result.error}`;
+        statusEl.style.color = 'red';
+      }
+    } catch (error) {
+      statusEl.textContent = 'Błąd odczytu pliku!';
+      statusEl.style.color = 'red';
+    }
+    setTimeout(() => { statusEl.textContent = ''; statusEl.style.color = ''; }, 3000);
+  };
+  reader.readAsText(file);
+  event.target.value = ''; // Reset file input
+}
+
+async function handleClear() {
+  if (!confirm('Czy na pewno chcesz usunąć WSZYSTKIE wyuczone pytania? Tej operacji nie można cofnąć!')) return;
+
+  await clearAllLearnedQuestions();
+  await displayLearnedQuestions();
+
+  statusEl.textContent = 'Wszystkie pytania usunięte!';
+  statusEl.style.color = 'green';
+  setTimeout(() => { statusEl.textContent = ''; statusEl.style.color = ''; }, 2000);
+}
+
 // --- Event Listeners ---
 
 document.addEventListener('DOMContentLoaded', () => {
     loadApiKey();
     loadData();
     loadCvStatus();
+    displayLearnedQuestions();
 });
 addRowBtn.addEventListener('click', () => createDataRow());
 saveBtn.addEventListener('click', () => {
@@ -407,3 +567,15 @@ saveBtn.addEventListener('click', () => {
 cvUpload.addEventListener('change', handleCvUpload);
 apiKeyInput.addEventListener('change', saveApiKey);
 toggleApiKeyBtn.addEventListener('click', toggleApiKeyVisibility);
+
+// Learned questions event listeners
+document.getElementById('refresh-questions').addEventListener('click', () => displayLearnedQuestions());
+document.getElementById('question-search').addEventListener('input', (e) => {
+  displayLearnedQuestions(e.target.value);
+});
+document.getElementById('export-questions').addEventListener('click', handleExport);
+document.getElementById('import-questions').addEventListener('click', () => {
+  document.getElementById('import-file').click();
+});
+document.getElementById('import-file').addEventListener('change', handleImport);
+document.getElementById('clear-questions').addEventListener('click', handleClear);
