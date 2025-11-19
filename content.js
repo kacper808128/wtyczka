@@ -136,16 +136,17 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
         if (!answer || answer === '') {
           console.log(`[Gemini Filler] No batch answer for: "${batchQuestions[i].question}"`);
-          continue;
+          continue;  // Don't add to processedElements - let second pass retry
         }
-
-        processedElements.add(element);
 
         try {
           console.log(`[Gemini Filler] Batch filling: "${batchQuestions[i].question}" = "${answer}"`);
 
+          let filled = false;  // Track if we actually filled the field
+
           if (element.tagName === 'SELECT') {
             const bestMatchText = findBestMatch(answer, metadata.optionsText);
+            console.log(`[Gemini Filler] findBestMatch("${answer}") -> "${bestMatchText}" from ${metadata.optionsText?.length || 0} options`);
             if (bestMatchText) {
               const bestMatchOption = Array.from(element.options).find(o => o.text === bestMatchText);
               if (bestMatchOption) {
@@ -159,7 +160,12 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 element.dispatchEvent(inputEvent);
                 element.dispatchEvent(changeEvent);
                 aChangeWasMade = true;
+                filled = true;
+              } else {
+                console.warn(`[Gemini Filler] Matched text "${bestMatchText}" but option not found in SELECT`);
               }
+            } else {
+              console.warn(`[Gemini Filler] findBestMatch failed for answer "${answer}" in SELECT with ${metadata.optionsText?.length} options`);
             }
           } else if (element.getAttribute('role') === 'radiogroup') {
             const radioButtons = Array.from(element.querySelectorAll('button[role="radio"]'));
@@ -172,14 +178,21 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             });
 
             const bestMatchText = findBestMatch(answer, optionDetails.map(o => o.text));
+            console.log(`[Gemini Filler] findBestMatch("${answer}") -> "${bestMatchText}" for radiogroup with ${optionDetails.length} options`);
             if (bestMatchText) {
               const matchingOption = optionDetails.find(o => o.text === bestMatchText);
               if (matchingOption) {
                 matchingOption.button.click();
                 aChangeWasMade = true;
+                filled = true;
+              } else {
+                console.warn(`[Gemini Filler] Matched text "${bestMatchText}" but radio button not found`);
               }
+            } else {
+              console.warn(`[Gemini Filler] findBestMatch failed for answer "${answer}" in radiogroup with ${optionDetails.length} options`);
             }
           } else {
+            // Text input, textarea, etc.
             element.value = answer;
             await new Promise(resolve => setTimeout(resolve, 200));
             const inputEvent = new Event('input', { bubbles: true });
@@ -189,10 +202,20 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             element.dispatchEvent(inputEvent);
             element.dispatchEvent(changeEvent);
             aChangeWasMade = true;
+            filled = true;
+            console.log(`[Gemini Filler] Filled text input with: "${answer}"`);
+          }
+
+          // Only mark as processed if we actually filled it
+          if (filled) {
+            processedElements.add(element);
+            console.log(`[Gemini Filler] Marked element as processed: "${batchQuestions[i].question}"`);
+          } else {
+            console.log(`[Gemini Filler] Element NOT marked as processed (will retry): "${batchQuestions[i].question}"`);
           }
 
           // Capture for learning (source is 'ai' from batch)
-          if (typeof captureQuestion === 'function') {
+          if (filled && typeof captureQuestion === 'function') {
             try {
               const capturedHash = await captureQuestion(element, answer);
               if (capturedHash && typeof addFeedbackButton === 'function') {
