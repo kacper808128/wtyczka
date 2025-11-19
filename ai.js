@@ -1,3 +1,14 @@
+// Available Gemini models for rotation on rate limiting
+const GEMINI_MODELS = [
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite'
+];
+
+// Current model index - rotates through models on 429 errors
+let currentModelIndex = 0;
+
 async function getApiKey() {
   // First, try to get API key from chrome.storage (user settings)
   try {
@@ -50,8 +61,6 @@ async function getAIResponse(question, userData, options) {
 }
 
 async function getRealAIResponse(question, userData, apiKey, options) {
-  const API_URL = `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
   let prompt = `You are an expert recruitment form filler. Your task is to select the best option from a list for a given question, based on the user's data.
 
 User data: ${JSON.stringify(userData, null, 2)}
@@ -66,9 +75,18 @@ Question: "${question}"`;
 
   const maxRetries = 3;
   let lastError = null;
+  let modelsAttempted = new Set(); // Track which models we've tried
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
+      // Get current model
+      const currentModel = GEMINI_MODELS[currentModelIndex];
+      modelsAttempted.add(currentModel);
+
+      const API_URL = `https://generativelanguage.googleapis.com/v1/models/${currentModel}:generateContent?key=${apiKey}`;
+
+      console.log(`[Gemini Filler] Using model: ${currentModel} (attempt ${attempt + 1}/${maxRetries})`);
+
       // Create abort controller for timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
@@ -95,10 +113,23 @@ Question: "${question}"`;
         const errorData = await response.json().catch(() => ({}));
 
         if (response.status === 429) {
-          // Rate limiting - wait before retry
-          const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff
-          console.warn(`Rate limited. Retrying in ${waitTime}ms...`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
+          // Rate limiting - rotate to next model
+          console.warn(`[Gemini Filler] Rate limited on ${currentModel}. Rotating to next model...`);
+
+          // Rotate to next model
+          currentModelIndex = (currentModelIndex + 1) % GEMINI_MODELS.length;
+          const nextModel = GEMINI_MODELS[currentModelIndex];
+
+          // If we've tried all models, wait before continuing
+          if (modelsAttempted.has(nextModel)) {
+            const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff
+            console.warn(`[Gemini Filler] All models attempted. Waiting ${waitTime}ms before retry...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+          } else {
+            // Just a short delay before trying the next model
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+
           continue;
         }
 

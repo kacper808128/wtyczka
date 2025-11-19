@@ -55,6 +55,9 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
     return;
   }
 
+  // First, handle custom upload buttons (div-based resume upload buttons)
+  await handleCustomResumeButtons(processedElements);
+
   let formElements;
   try {
     formElements = document.querySelectorAll('input, textarea, select, button[aria-haspopup="dialog"], div[role="radiogroup"]');
@@ -321,6 +324,82 @@ function getCvFromStorage() {
         });
     });
   });
+}
+
+async function handleCustomResumeButtons(processedElements) {
+  try {
+    // Look for custom div-based upload buttons (like the one in the example)
+    // These are typically divs or spans with specific classes and text content
+    const customUploadSelectors = [
+      '.attachmentBtn',
+      '.addAttachments',
+      '[class*="upload"]',
+      'div[role="button"][aria-label*="Resume"]',
+      'div[role="button"][aria-label*="CV"]',
+      'span[role="button"][aria-label*="Resume"]',
+      'span[role="button"][aria-label*="CV"]'
+    ];
+
+    for (const selector of customUploadSelectors) {
+      const buttons = document.querySelectorAll(selector);
+
+      for (const button of buttons) {
+        // Skip if already processed
+        if (processedElements.has(button)) {
+          continue;
+        }
+
+        // Check if this looks like a resume upload button
+        const buttonText = button.textContent?.toLowerCase() || '';
+        const ariaLabel = button.getAttribute('aria-label')?.toLowerCase() || '';
+        const ariaLabelledBy = button.getAttribute('aria-labelledby');
+        let labelText = '';
+
+        if (ariaLabelledBy) {
+          const labelElement = document.getElementById(ariaLabelledBy);
+          labelText = labelElement?.textContent?.toLowerCase() || '';
+        }
+
+        const combinedText = `${buttonText} ${ariaLabel} ${labelText}`;
+        const resumeKeywords = ['resume', 'cv', 'curriculum', 'życiorys', 'załącz'];
+
+        if (resumeKeywords.some(keyword => combinedText.includes(keyword))) {
+          console.log('[Gemini Filler] Found custom resume upload button:', button);
+          processedElements.add(button);
+
+          try {
+            // Click the button to open the file picker
+            button.click();
+
+            // Wait for file input to appear (it might be dynamically created)
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // Look for any newly appeared file inputs
+            const fileInputs = document.querySelectorAll('input[type="file"]');
+            for (const fileInput of fileInputs) {
+              if (!processedElements.has(fileInput) && document.contains(fileInput)) {
+                // Check if it's visible or in a modal/dialog
+                const isVisible = fileInput.offsetParent !== null ||
+                                 fileInput.closest('[role="dialog"]') !== null ||
+                                 fileInput.closest('.modal') !== null;
+
+                if (isVisible || fileInput.style.display !== 'none') {
+                  console.log('[Gemini Filler] Found file input after clicking custom button');
+                  await handleFileInput(fileInput);
+                  processedElements.add(fileInput);
+                  break; // Only handle the first one
+                }
+              }
+            }
+          } catch (error) {
+            console.error('[Gemini Filler] Error handling custom upload button:', error);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[Gemini Filler] Error in handleCustomResumeButtons:', error);
+  }
 }
 
 async function handleFileInput(fileInputElement) {
