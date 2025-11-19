@@ -150,10 +150,14 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               const bestMatchOption = Array.from(element.options).find(o => o.text === bestMatchText);
               if (bestMatchOption) {
                 element.value = bestMatchOption.value;
-                // Add small delay before events to prevent stack overflow
-                await new Promise(resolve => setTimeout(resolve, 50));
-                element.dispatchEvent(new Event('input', { bubbles: true }));
-                element.dispatchEvent(new Event('change', { bubbles: true }));
+                // Add delay before events to prevent stack overflow
+                await new Promise(resolve => setTimeout(resolve, 200));
+                const inputEvent = new Event('input', { bubbles: true });
+                inputEvent._autofilledByExtension = true;
+                const changeEvent = new Event('change', { bubbles: true });
+                changeEvent._autofilledByExtension = true;
+                element.dispatchEvent(inputEvent);
+                element.dispatchEvent(changeEvent);
                 aChangeWasMade = true;
               }
             }
@@ -177,9 +181,13 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             }
           } else {
             element.value = answer;
-            await new Promise(resolve => setTimeout(resolve, 50));
-            element.dispatchEvent(new Event('input', { bubbles: true }));
-            element.dispatchEvent(new Event('change', { bubbles: true }));
+            await new Promise(resolve => setTimeout(resolve, 200));
+            const inputEvent = new Event('input', { bubbles: true });
+            inputEvent._autofilledByExtension = true;
+            const changeEvent = new Event('change', { bubbles: true });
+            changeEvent._autofilledByExtension = true;
+            element.dispatchEvent(inputEvent);
+            element.dispatchEvent(changeEvent);
             aChangeWasMade = true;
           }
 
@@ -406,8 +414,13 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             const bestMatchOption = Array.from(element.options).find(o => o.text === bestMatchText);
             if (bestMatchOption) {
               element.value = bestMatchOption.value;
-              element.dispatchEvent(new Event('input', { bubbles: true }));
-              element.dispatchEvent(new Event('change', { bubbles: true }));
+              await new Promise(resolve => setTimeout(resolve, 200));
+              const inputEvent = new Event('input', { bubbles: true });
+              inputEvent._autofilledByExtension = true;
+              const changeEvent = new Event('change', { bubbles: true });
+              changeEvent._autofilledByExtension = true;
+              element.dispatchEvent(inputEvent);
+              element.dispatchEvent(changeEvent);
               aChangeWasMade = true;
             }
           }
@@ -458,8 +471,13 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           }
         } else {
           element.value = answer;
-          element.dispatchEvent(new Event('input', { bubbles: true }));
-          element.dispatchEvent(new Event('change', { bubbles: true }));
+          await new Promise(resolve => setTimeout(resolve, 200));
+          const inputEvent = new Event('input', { bubbles: true });
+          inputEvent._autofilledByExtension = true;
+          const changeEvent = new Event('change', { bubbles: true });
+          changeEvent._autofilledByExtension = true;
+          element.dispatchEvent(inputEvent);
+          element.dispatchEvent(changeEvent);
           aChangeWasMade = true;
         }
 

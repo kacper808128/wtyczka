@@ -133,7 +133,7 @@ Example response:
 
   try {
     console.log(`[Gemini Filler] Batch processing ${questions.length} questions...`);
-    const response = await getRealAIResponse(prompt, {}, apiKey, null);
+    const response = await getRealAIResponse(prompt, {}, apiKey, null, 30000); // 30s timeout for batch
 
     // Parse JSON response
     try {
@@ -175,7 +175,7 @@ Example response:
   }
 }
 
-async function getRealAIResponse(question, userData, apiKey, options) {
+async function getRealAIResponse(question, userData, apiKey, options, timeoutMs = 15000) {
   let prompt = `You are an expert recruitment form filler. Your task is to select the best option from a list for a given question, based on the user's data.
 
 User data: ${JSON.stringify(userData, null, 2)}
@@ -204,7 +204,7 @@ Question: "${question}"`;
 
       // Create abort controller for timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout (reduced from 30s)
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       const response = await fetch(API_URL, {
         method: 'POST',
@@ -289,8 +289,8 @@ Question: "${question}"`;
 
       // Don't retry on these errors
       if (error.name === 'AbortError') {
-        console.error('API request timed out after 15 seconds');
-        throw new Error('Request timed out after 15 seconds');
+        console.error(`API request timed out after ${timeoutMs/1000} seconds`);
+        throw new Error(`Request timed out after ${timeoutMs/1000} seconds`);
       }
 
       if (error.message.includes('invalid') || error.message.includes('permissions')) {
@@ -313,6 +313,10 @@ Question: "${question}"`;
 }
 
 function getMockAIResponse(question, userData, options) {
+  if (!userData || Object.keys(userData).length === 0) {
+    return '';
+  }
+
   const lowerQuestion = question.toLowerCase();
 
   // Helper function to find best match in options
@@ -338,35 +342,76 @@ function getMockAIResponse(question, userData, options) {
     return value; // Return original if no match
   }
 
-  // Simple keyword matching. This is a placeholder for real AI.
+  // NEW: Intelligent fuzzy matching in userData keys
+  // Instead of hardcoded fields, search for matching keys
+  function findUserDataValue(keywords) {
+    if (!Array.isArray(keywords)) keywords = [keywords];
+
+    for (const keyword of keywords) {
+      const lowerKeyword = keyword.toLowerCase();
+
+      // Try exact match first
+      for (const [key, value] of Object.entries(userData)) {
+        if (key.toLowerCase() === lowerKeyword && value) {
+          return value;
+        }
+      }
+
+      // Try partial match
+      for (const [key, value] of Object.entries(userData)) {
+        const lowerKey = key.toLowerCase();
+        if ((lowerKey.includes(lowerKeyword) || lowerKeyword.includes(lowerKey)) && value) {
+          return value;
+        }
+      }
+    }
+
+    return null;
+  }
+
   let answer = '';
 
-  if (lowerQuestion.includes('first name') || lowerQuestion.includes('imię')) {
-    answer = userData.firstName || '';
+  // Try to match question to userData using intelligent keyword matching
+  if (lowerQuestion.includes('first name') || lowerQuestion.includes('imię') || lowerQuestion.includes('imie')) {
+    answer = findUserDataValue(['imię', 'imie', 'firstName', 'first name', 'name', 'first']) || '';
   } else if (lowerQuestion.includes('last name') || lowerQuestion.includes('nazwisko')) {
-    answer = userData.lastName || '';
-  } else if (lowerQuestion.includes('email') || lowerQuestion.includes('e-mail')) {
-    answer = userData.email || '';
-  } else if (lowerQuestion.includes('phone') || lowerQuestion.includes('telefon') || lowerQuestion.includes('tel.')) {
-    answer = userData.phone || '';
+    answer = findUserDataValue(['nazwisko', 'lastName', 'last name', 'surname', 'last']) || '';
+  } else if (lowerQuestion.includes('full name') || lowerQuestion.includes('pełne imię')) {
+    const firstName = findUserDataValue(['imię', 'firstName', 'first name']);
+    const lastName = findUserDataValue(['nazwisko', 'lastName', 'last name']);
+    answer = [firstName, lastName].filter(Boolean).join(' ');
+  } else if (lowerQuestion.includes('email') || lowerQuestion.includes('e-mail') || lowerQuestion.includes('mail')) {
+    answer = findUserDataValue(['email', 'e-mail', 'mail', 'e mail']) || '';
+  } else if (lowerQuestion.includes('phone') || lowerQuestion.includes('telefon') || lowerQuestion.includes('tel.') || lowerQuestion.includes('numer')) {
+    answer = findUserDataValue(['telefon', 'phone', 'tel', 'numer telefonu', 'phone number', 'mobile', 'tel.']) || '';
   } else if (lowerQuestion.includes('linkedin')) {
-    answer = userData.linkedin || '';
+    answer = findUserDataValue(['linkedin', 'linked in']) || '';
   } else if (lowerQuestion.includes('github')) {
-    answer = userData.github || '';
+    answer = findUserDataValue(['github', 'git hub']) || '';
   } else if (lowerQuestion.includes('portfolio') || lowerQuestion.includes('website') || lowerQuestion.includes('strona')) {
-    answer = userData.website || userData.portfolio || '';
+    answer = findUserDataValue(['website', 'portfolio', 'strona', 'www', 'web']) || '';
   } else if (lowerQuestion.includes('experience') || lowerQuestion.includes('doświadczenie') || lowerQuestion.includes('lata')) {
-    answer = userData.experience || userData.yearsOfExperience || '';
+    answer = findUserDataValue(['experience', 'doświadczenie', 'yearsOfExperience', 'years', 'lata', 'lata doświadczenia']) || '';
   } else if (lowerQuestion.includes('education') || lowerQuestion.includes('wykształcenie')) {
-    answer = userData.education || '';
-  } else if (lowerQuestion.includes('start') || lowerQuestion.includes('rozpocząć') || lowerQuestion.includes('availability')) {
-    answer = userData.startDate || userData.availability || 'Immediately';
-  } else if (lowerQuestion.includes('salary') || lowerQuestion.includes('wynagrodzenie')) {
-    answer = userData.salary || userData.expectedSalary || '';
-  } else if (lowerQuestion.includes('location') || lowerQuestion.includes('miasto') || lowerQuestion.includes('lokalizacja')) {
-    answer = userData.location || userData.city || '';
+    answer = findUserDataValue(['education', 'wykształcenie', 'edukacja', 'szkoła']) || '';
+  } else if (lowerQuestion.includes('start') || lowerQuestion.includes('rozpocząć') || lowerQuestion.includes('availability') || lowerQuestion.includes('kiedy')) {
+    answer = findUserDataValue(['startDate', 'availability', 'start', 'kiedy', 'od kiedy', 'rozpoczęcie']) || 'Immediately';
+  } else if (lowerQuestion.includes('salary') || lowerQuestion.includes('wynagrodzenie') || lowerQuestion.includes('pensja')) {
+    answer = findUserDataValue(['salary', 'wynagrodzenie', 'expectedSalary', 'pensja', 'oczekiwane wynagrodzenie']) || '';
+  } else if (lowerQuestion.includes('location') || lowerQuestion.includes('miasto') || lowerQuestion.includes('lokalizacja') || lowerQuestion.includes('city')) {
+    answer = findUserDataValue(['location', 'city', 'miasto', 'lokalizacja']) || '';
   } else if (lowerQuestion.includes('address') || lowerQuestion.includes('adres')) {
-    answer = userData.address || '';
+    answer = findUserDataValue(['address', 'adres']) || '';
+  } else if (lowerQuestion.includes('country') || lowerQuestion.includes('kraj')) {
+    answer = findUserDataValue(['country', 'kraj', 'państwo']) || '';
+  } else if (lowerQuestion.includes('language') || lowerQuestion.includes('język')) {
+    answer = findUserDataValue(['languages', 'language', 'języki', 'język', 'języki obce']) || '';
+  } else if (lowerQuestion.includes('skill') || lowerQuestion.includes('umiejętnoś')) {
+    answer = findUserDataValue(['skills', 'skill', 'umiejętności', 'technologie']) || '';
+  } else if (lowerQuestion.includes('contract') || lowerQuestion.includes('umowa')) {
+    answer = findUserDataValue(['contract', 'umowa', 'typ umowy']) || '';
+  } else if (lowerQuestion.includes('work mode') || lowerQuestion.includes('tryb pracy') || lowerQuestion.includes('remote')) {
+    answer = findUserDataValue(['workMode', 'tryb pracy', 'work mode', 'remote', 'hybrid']) || '';
   } else if (lowerQuestion.includes('notification') || lowerQuestion.includes('powiadomienia')) {
     // For notifications - default to Yes
     return findInOptions('Yes', options) || 'Yes';
