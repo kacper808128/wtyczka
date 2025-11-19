@@ -637,30 +637,45 @@ function findBestMatch(answer, options) {
     return null;
   }
 
-  let bestMatch = null;
-  let maxScore = 0;
-
   // Normalize answer by removing special chars for better matching
   const normalizedAnswer = answer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
   const answerWords = normalizedAnswer.split(/\s+/).filter(w => w.length > 0);
 
+  // PASS 1: Look for exact match (highest priority)
   for (const optionText of options) {
-    // Try exact match first
     if (optionText.toLowerCase() === answer.toLowerCase()) {
       return optionText;
     }
+  }
 
-    // Try substring match (for cases like "+48" in "Poland (+48)")
-    if (optionText.toLowerCase().includes(answer.toLowerCase()) ||
-        answer.toLowerCase().includes(optionText.toLowerCase())) {
-      return optionText;
+  // PASS 2: Look for substring match (second priority)
+  let substringMatch = null;
+  for (const optionText of options) {
+    const lowerOption = optionText.toLowerCase();
+    const lowerAnswer = answer.toLowerCase();
+
+    // Exact substring match (answer is in option OR option is in answer)
+    if (lowerOption.includes(lowerAnswer) || lowerAnswer.includes(lowerOption)) {
+      // Prefer shorter matches (more specific)
+      if (!substringMatch || optionText.length < substringMatch.length) {
+        substringMatch = optionText;
+      }
     }
+  }
 
-    // Normalize option text similarly
+  if (substringMatch) {
+    return substringMatch;
+  }
+
+  // PASS 3: Word-based scoring (fallback)
+  let bestMatch = null;
+  let maxScore = 0;
+
+  for (const optionText of options) {
     const normalizedOption = optionText.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
     const optionWords = normalizedOption.split(/\s+/).filter(w => w.length > 0);
 
-    // Word-based scoring
+    // Count matching words
     const score = answerWords.filter(word => optionWords.includes(word)).length;
 
     if (score > maxScore) {

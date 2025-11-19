@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Recruitment Form - Formularz Testowy</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button[aria-haspopup="dialog"] {
+            width: 100%;
+            padding: 10px;
+            background: white;
+            border: 1px solid #ddd;
+            text-align: left;
+            cursor: pointer;
+        }
+        .dialog {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border: 1px solid #ccc;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+        .dialog[aria-hidden="false"] {
+            display: block;
+        }
+        .dialog [role="option"] {
+            padding: 10px;
+            cursor: pointer;
+        }
+        .dialog [role="option"]:hover {
+            background: #f0f0f0;
+        }
+        .required::after {
+            content: " *";
+            color: red;
+        }
+        div[role="radiogroup"] {
+            display: flex;
+            gap: 15px;
+            margin-top: 10px;
+        }
+        button[role="radio"] {
+            padding: 10px 20px;
+            border: 2px solid #ddd;
+            background: white;
+            cursor: pointer;
+        }
+        button[role="radio"][aria-checked="true"] {
+            border-color: #007bff;
+            background: #e7f3ff;
+        }
+    </style>
+</head>
+<body>
+    <h1>Formularz Aplikacyjny / Application Form</h1>
+    <p>Test form for Chrome extension - includes all problematic field types</p>
+
+    <form id="testForm">
+        <!-- Regular text inputs -->
+        <div class="form-group">
+            <label for="email" class="required">Email</label>
+            <input type="email" id="email" name="email" required>
+        </div>
+
+        <div class="form-group">
+            <label for="phone" class="required">Telefon / Phone</label>
+            <input type="tel" id="phone" name="phone" required>
+        </div>
+
+        <!-- SELECT dropdown - Years of experience (PROBLEMATIC CASE #1) -->
+        <div class="form-group">
+            <label for="experience" class="required">Lata doświadczenia</label>
+            <select id="experience" name="experience" required>
+                <option value="">-- Wybierz --</option>
+                <option value="0-1">Brak doświadczenia</option>
+                <option value="1-2">1-2 lata</option>
+                <option value="3-5">3-5 lat</option>
+                <option value="5-10">5-10 lat</option>
+                <option value="10+">Powyżej 10 lat</option>
+            </select>
+        </div>
+
+        <!-- SELECT dropdown - Education (PROBLEMATIC CASE #2) -->
+        <div class="form-group">
+            <label for="education" class="required">Wykształcenie</label>
+            <select id="education" name="education" required>
+                <option value="">-- Wybierz --</option>
+                <option value="podstawowe">Podstawowe</option>
+                <option value="zawodowe">Zawodowe</option>
+                <option value="srednie">Średnie</option>
+                <option value="policealne">Policealne</option>
+                <option value="wyzsze-licencjat">Wyższe - licencjat</option>
+                <option value="wyzsze-magister">Wyższe - magister</option>
+                <option value="doktor">Doktor</option>
+            </select>
+        </div>
+
+        <!-- Custom dropdown button - Country (PROBLEMATIC CASE #3) -->
+        <div class="form-group">
+            <label class="required">Kraj</label>
+            <button type="button"
+                    id="countryButton"
+                    aria-haspopup="dialog"
+                    aria-controls="countryDialog"
+                    onclick="openDialog('countryDialog')">
+                Wybierz kraj / Select country
+            </button>
+            <div id="countryDialog" class="dialog" role="dialog" aria-hidden="true">
+                <div role="option" onclick="selectOption('countryButton', 'countryDialog', this)">Afghanistan (+93)</div>
+                <div role="option" onclick="selectOption('countryButton', 'countryDialog', this)">Albania (+355)</div>
+                <div role="option" onclick="selectOption('countryButton', 'countryDialog', this)">Germany (+49)</div>
+                <div role="option" onclick="selectOption('countryButton', 'countryDialog', this)">Poland (+48)</div>
+                <div role="option" onclick="selectOption('countryButton', 'countryDialog', this)">United Kingdom (+44)</div>
+                <div role="option" onclick="selectOption('countryButton', 'countryDialog', this)">United States (+1)</div>
+            </div>
+        </div>
+
+        <!-- SELECT dropdown - Country code (PROBLEMATIC CASE #4 - "+48" matching) -->
+        <div class="form-group">
+            <label for="countryCode" class="required">Country/Region Code:</label>
+            <select id="countryCode" name="countryCode" required>
+                <option value="">-- Select --</option>
+                <option value="us">United States (+1)</option>
+                <option value="uk">United Kingdom (+44)</option>
+                <option value="de">Germany (+49)</option>
+                <option value="pl">Poland (+48)</option>
+                <option value="fr">France (+33)</option>
+            </select>
+        </div>
+
+        <!-- Radiogroup - Gender -->
+        <div class="form-group">
+            <label class="required">Płeć / Gender</label>
+            <div role="radiogroup" aria-label="Gender selection">
+                <button type="button" role="radio" id="gender-m" aria-checked="false" onclick="selectRadio('gender-m')">
+                    <label for="gender-m">Mężczyzna / Male</label>
+                </button>
+                <button type="button" role="radio" id="gender-f" aria-checked="false" onclick="selectRadio('gender-f')">
+                    <label for="gender-f">Kobieta / Female</label>
+                </button>
+                <button type="button" role="radio" id="gender-o" aria-checked="false" onclick="selectRadio('gender-o')">
+                    <label for="gender-o">Inne / Other</label>
+                </button>
+            </div>
+        </div>
+
+        <!-- Textarea - Motivation (often missed by AI) -->
+        <div class="form-group">
+            <label for="motivation">Dlaczego chcesz dołączyć do naszej firmy?</label>
+            <textarea id="motivation" name="motivation" rows="4"></textarea>
+        </div>
+
+        <!-- File input - CV upload -->
+        <div class="form-group">
+            <label for="cv">Załącz CV / Upload Resume</label>
+            <input type="file" id="cv" name="cv" accept=".pdf,.doc,.docx">
+        </div>
+
+        <!-- Custom upload button (complex structure) -->
+        <div class="form-group">
+            <label>Dodatkowe załączniki</label>
+            <div class="attachmentBtn">
+                <span role="button" class="addAttachments" onclick="document.getElementById('customFile').click()">
+                    📎 Dodaj plik
+                </span>
+            </div>
+            <input type="file" id="customFile" style="display: none;" multiple>
+        </div>
+
+        <button type="submit">Wyślij aplikację / Submit Application</button>
+    </form>
+
+    <script>
+        function openDialog(dialogId) {
+            const dialog = document.getElementById(dialogId);
+            dialog.setAttribute('aria-hidden', 'false');
+        }
+
+        function closeDialog(dialogId) {
+            const dialog = document.getElementById(dialogId);
+            dialog.setAttribute('aria-hidden', 'true');
+        }
+
+        function selectOption(buttonId, dialogId, option) {
+            const button = document.getElementById(buttonId);
+            button.textContent = option.textContent;
+            button.dataset.value = option.textContent;
+            closeDialog(dialogId);
+        }
+
+        function selectRadio(radioId) {
+            // Uncheck all radios in the group
+            const group = document.querySelector(`#${radioId}`).closest('[role="radiogroup"]');
+            group.querySelectorAll('[role="radio"]').forEach(radio => {
+                radio.setAttribute('aria-checked', 'false');
+            });
+            // Check selected radio
+            document.getElementById(radioId).setAttribute('aria-checked', 'true');
+        }
+
+        document.getElementById('testForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            alert('Form submitted! (Test mode - not actually sending)');
+        });
+
+        // Close dialogs when clicking outside
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('dialog')) {
+                e.target.setAttribute('aria-hidden', 'true');
+            }
+        });
+    </script>
+</body>
+</html>
