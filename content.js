@@ -261,15 +261,26 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         // Custom dropdowns
         if (element.tagName === 'BUTTON' && element.getAttribute('aria-haspopup') === 'dialog') {
           const question = getQuestionForInput(element);
-          if (!question) continue;
+          if (!question) {
+            console.log('[Gemini Filler] Custom dropdown: no question found, skipping');
+            continue;
+          }
 
-          processedElements.add(element);
+          let filled = false;  // Track if we successfully filled this
 
           try {
+            console.log(`[Gemini Filler] Processing custom dropdown: "${question}"`);
+
             const result = await getAIResponse(question, userData, null);
             const answer = result.answer;
             const answerSource = result.source;
-            if (!answer) continue;
+
+            if (!answer) {
+              console.log(`[Gemini Filler] Custom dropdown: no answer for "${question}"`);
+              continue;  // Don't mark as processed - let second pass retry
+            }
+
+            console.log(`[Gemini Filler] Custom dropdown: got answer "${answer}" from ${answerSource}`);
 
             element.click();
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -285,12 +296,18 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               optionsInDialog = Array.from(document.querySelectorAll('[role="option"]'));
             }
 
+            console.log(`[Gemini Filler] Custom dropdown: found ${optionsInDialog.length} options in dialog`);
+
             const bestMatch = findBestMatch(answer, optionsInDialog.map(o => o.textContent));
+            console.log(`[Gemini Filler] Custom dropdown: findBestMatch("${answer}") -> "${bestMatch}"`);
+
             if (bestMatch) {
               const bestMatchElement = optionsInDialog.find(o => o.textContent === bestMatch);
               if (bestMatchElement) {
                 bestMatchElement.click();
                 aChangeWasMade = true;
+                filled = true;
+                console.log(`[Gemini Filler] Custom dropdown: successfully clicked option "${bestMatch}"`);
 
                 // Capture for learning and add feedback button
                 if (typeof captureQuestion === 'function') {
@@ -303,10 +320,23 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                     console.warn('[Gemini Filler] Error capturing custom dropdown question:', err);
                   }
                 }
+              } else {
+                console.warn(`[Gemini Filler] Custom dropdown: matched text "${bestMatch}" but element not found`);
               }
+            } else {
+              console.warn(`[Gemini Filler] Custom dropdown: no match for "${answer}" among ${optionsInDialog.length} options`);
+            }
+
+            // Only mark as processed if we successfully filled it
+            if (filled) {
+              processedElements.add(element);
+              console.log(`[Gemini Filler] Custom dropdown: marked as processed`);
+            } else {
+              console.log(`[Gemini Filler] Custom dropdown: NOT marked as processed (will retry in second pass)`);
             }
           } catch (e) {
             console.error(`[Gemini Filler] Error with custom dropdown:`, e);
+            // Don't add to processedElements on error - allow retry
           }
           continue;
         }
