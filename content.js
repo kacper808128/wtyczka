@@ -131,12 +131,20 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       // Fill all fields from batch
       for (let i = 0; i < batchElements.length; i++) {
         const element = batchElements[i];
-        const answer = batchAnswers[i];
+        let answer = batchAnswers[i];
         const metadata = batchMetadata[i];
 
+        // If batch AI returned empty, try mock response as fallback
         if (!answer || answer === '') {
-          console.log(`[Gemini Filler] No batch answer for: "${batchQuestions[i].question}"`);
-          continue;  // Don't add to processedElements - let second pass retry
+          console.log(`[Gemini Filler] No batch answer for: "${batchQuestions[i].question}", trying mock fallback...`);
+          const mockAnswer = getMockAIResponse(batchQuestions[i].question, userData, metadata.optionsText);
+          if (mockAnswer) {
+            answer = mockAnswer;
+            console.log(`[Gemini Filler] Mock fallback found: "${answer}"`);
+          } else {
+            console.log(`[Gemini Filler] No mock fallback either, will retry in second pass`);
+            continue;  // Don't add to processedElements - let second pass retry with full AI
+          }
         }
 
         try {
