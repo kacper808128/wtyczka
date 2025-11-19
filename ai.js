@@ -1,4 +1,26 @@
 async function getApiKey() {
+  // First, try to get API key from chrome.storage (user settings)
+  try {
+    const result = await new Promise((resolve) => {
+      chrome.storage.sync.get('geminiApiKey', (result) => {
+        if (chrome.runtime.lastError) {
+          console.warn('Error reading API key from storage:', chrome.runtime.lastError);
+          resolve(null);
+        } else {
+          resolve(result.geminiApiKey);
+        }
+      });
+    });
+
+    // If we found a valid API key in storage, use it
+    if (result && result !== 'YOUR_API_KEY_HERE' && result.trim().length > 0) {
+      return result;
+    }
+  } catch (error) {
+    console.warn('Error accessing storage for API key:', error);
+  }
+
+  // Fallback: try to get API key from config.js (for backward compatibility)
   try {
     const response = await fetch(chrome.runtime.getURL('config.js'));
     if (!response.ok) {
@@ -6,11 +28,12 @@ async function getApiKey() {
     }
     const text = await response.text();
     const match = text.match(/const\s+GEMINI_API_KEY\s*=\s*["'](.*)["']/);
-    if (match && match[1]) {
+    if (match && match[1] && match[1] !== 'YOUR_API_KEY_HERE') {
       return match[1];
     }
     return null;
   } catch (error) {
+    console.warn('Error reading config.js:', error);
     return null;
   }
 }
@@ -18,9 +41,10 @@ async function getApiKey() {
 async function getAIResponse(question, userData, options) {
   const apiKey = await getApiKey();
 
-  if (apiKey && apiKey !== 'TWOJ_KLUCZ_API') {
+  if (apiKey && apiKey !== 'TWOJ_KLUCZ_API' && apiKey !== 'YOUR_API_KEY_HERE') {
     return getRealAIResponse(question, userData, apiKey, options);
   } else {
+    console.log('[Gemini Filler] No API key configured, using mock responses. Set your API key in extension settings.');
     return getMockAIResponse(question, userData);
   }
 }
@@ -40,33 +64,106 @@ Question: "${question}"`;
     prompt += `\n\nPlease provide only the answer to the question, without any extra text or explanation.`;
   }
 
-  try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: prompt
+  const maxRetries = 3;
+  let lastError = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Create abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: prompt
+            }]
           }]
-        }]
-      })
-    });
+        }),
+        signal: controller.signal
+      });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      clearTimeout(timeoutId);
+
+      // Handle specific HTTP error codes
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+
+        if (response.status === 429) {
+          // Rate limiting - wait before retry
+          const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff
+          console.warn(`Rate limited. Retrying in ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+
+        if (response.status === 400) {
+          throw new Error(`Invalid API request: ${errorData.error?.message || 'Bad request'}`);
+        }
+
+        if (response.status === 403) {
+          throw new Error('API key is invalid or has insufficient permissions');
+        }
+
+        if (response.status === 404) {
+          throw new Error('API endpoint not found. The model may have been updated.');
+        }
+
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorData.error?.message || 'Unknown error'}`);
+      }
+
+      const data = await response.json();
+
+      // Validate response structure
+      if (!data || !data.candidates || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+        throw new Error('Invalid API response: no candidates returned');
+      }
+
+      const candidate = data.candidates[0];
+
+      if (!candidate.content || !candidate.content.parts || !Array.isArray(candidate.content.parts) || candidate.content.parts.length === 0) {
+        throw new Error('Invalid API response: no content parts found');
+      }
+
+      const text = candidate.content.parts[0].text;
+
+      if (typeof text !== 'string') {
+        throw new Error('Invalid API response: text is not a string');
+      }
+
+      return text.trim();
+
+    } catch (error) {
+      lastError = error;
+
+      // Don't retry on these errors
+      if (error.name === 'AbortError') {
+        console.error('API request timed out');
+        throw new Error('Request timed out after 30 seconds');
+      }
+
+      if (error.message.includes('invalid') || error.message.includes('permissions')) {
+        console.error('API error:', error.message);
+        throw error; // Don't retry on auth/config errors
+      }
+
+      // For network errors, retry with exponential backoff
+      if (attempt < maxRetries - 1) {
+        const waitTime = Math.pow(2, attempt) * 1000;
+        console.warn(`Attempt ${attempt + 1} failed. Retrying in ${waitTime}ms...`, error.message);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
     }
-
-    const data = await response.json();
-    const text = data.candidates[0].content.parts[0].text;
-    return text.trim();
-
-  } catch (error) {
-    console.error('Error calling Gemini API:', error);
-    return ''; // Return empty string on error
   }
+
+  // All retries failed
+  console.error('Error calling Gemini API after', maxRetries, 'attempts:', lastError);
+  throw lastError || new Error('Failed to get AI response after multiple attempts');
 }
 
 function getMockAIResponse(question, userData) {

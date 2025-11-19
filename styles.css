@@ -40,6 +40,12 @@
   color: #2ecc71;
 }
 
+#gemini-filler-modal .error-icon {
+  font-size: 40px;
+  color: #e74c3c;
+  margin-bottom: 10px;
+}
+
 /* Debugging styles */
 .gemini-debug-highlight {
   border: 2px solid red !important;

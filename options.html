@@ -8,7 +8,7 @@
     h1 { font-size: 1.5em; }
     .form-group { margin-bottom: 15px; }
     label { display: block; margin-bottom: 5px; }
-    input[type="text"] { width: 300px; padding: 5px; }
+    input[type="text"], input[type="password"] { width: 300px; padding: 5px; }
     button { padding: 10px 15px; cursor: pointer; }
     #data-container { margin-top: 20px; }
     .data-row { display: flex; gap: 10px; margin-bottom: 10px; }
@@ -16,6 +16,18 @@
 </head>
 <body>
   <h1>Ustawienia</h1>
+
+  <h2>Klucz API Google Gemini</h2>
+  <div class="form-group">
+    <label for="api-key">Klucz API (wymagany do działania AI)</label>
+    <input type="password" id="api-key" placeholder="AIza...">
+    <button type="button" id="toggle-api-key" style="padding: 5px 10px;">👁️ Pokaż</button>
+    <p style="font-size: 0.9em; color: #666; margin-top: 5px;">
+      Uzyskaj klucz API na: <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a>
+    </p>
+    <p id="api-key-status" style="margin-top: 5px;"></p>
+  </div>
+  <hr style="margin: 20px 0;">
 
   <h2>Twoje dane</h2>
   <div id="data-container"></div>
