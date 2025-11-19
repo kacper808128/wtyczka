@@ -89,6 +89,18 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         continue;
       }
 
+      // Handle radio buttons
+      if (element.type === 'radio') {
+        await handleRadioButton(element, userData, processedElements);
+        continue;
+      }
+
+      // Handle checkboxes
+      if (element.type === 'checkbox') {
+        await handleCheckbox(element, userData);
+        continue;
+      }
+
       const question = getQuestionForInput(element);
       if (!question) {
         continue;
@@ -324,6 +336,161 @@ function getCvFromStorage() {
         });
     });
   });
+}
+
+async function handleRadioButton(radioElement, userData, processedElements) {
+  try {
+    // Skip if already processed or not in a group
+    const radioName = radioElement.name;
+    if (!radioName) {
+      return;
+    }
+
+    // Find all radio buttons in the same group
+    const radioGroup = document.querySelectorAll(`input[type="radio"][name="${radioName}"]`);
+    if (radioGroup.length === 0) {
+      return;
+    }
+
+    // Check if we've already processed this group
+    const groupKey = `radio-group-${radioName}`;
+    if (processedElements.has(groupKey)) {
+      return;
+    }
+    processedElements.add(groupKey);
+
+    // Get the question for this radio group
+    // Try to find from the first radio or from a group label
+    const question = getQuestionForInput(radioElement) || getRadioGroupLabel(radioElement);
+    if (!question) {
+      console.log('[Gemini Filler] No question found for radio group:', radioName);
+      return;
+    }
+
+    // Get all options
+    const options = Array.from(radioGroup).map(radio => {
+      // Try to find label
+      const label = document.querySelector(`label[for="${radio.id}"]`) ||
+                   radio.nextElementSibling?.tagName === 'LABEL' ? radio.nextElementSibling :
+                   radio.parentElement?.querySelector('label') ||
+                   radio.closest('div')?.querySelector('label');
+
+      return {
+        element: radio,
+        text: label ? label.textContent.trim() : radio.getAttribute('aria-label') || radio.value
+      };
+    }).filter(opt => opt.text);
+
+    if (options.length === 0) {
+      console.log('[Gemini Filler] No options found for radio group:', radioName);
+      return;
+    }
+
+    console.log(`[Gemini Filler] Processing radio group "${question}" with ${options.length} options`);
+
+    // Get AI response
+    const optionsText = options.map(o => o.text);
+    let answer;
+    try {
+      answer = await getAIResponse(question, userData, optionsText);
+    } catch (error) {
+      console.error(`[Gemini Filler] AI error for radio group "${question}":`, error);
+      return;
+    }
+
+    if (!answer) {
+      return;
+    }
+
+    // Find best match and select it
+    const bestMatchText = findBestMatch(answer, optionsText);
+    if (bestMatchText) {
+      const matchingOption = options.find(o => o.text === bestMatchText);
+      if (matchingOption && matchingOption.element) {
+        matchingOption.element.checked = true;
+        matchingOption.element.dispatchEvent(new Event('change', { bubbles: true }));
+        matchingOption.element.dispatchEvent(new Event('click', { bubbles: true }));
+
+        // Trigger any onclick handlers
+        if (matchingOption.element.onclick) {
+          matchingOption.element.onclick.call(matchingOption.element);
+        }
+
+        console.log(`[Gemini Filler] Selected radio option: ${bestMatchText}`);
+      }
+    }
+  } catch (error) {
+    console.error('[Gemini Filler] Error handling radio button:', error);
+  }
+}
+
+function getRadioGroupLabel(radioElement) {
+  // Try to find a group label by looking for aria-labelledby on a parent
+  let current = radioElement.parentElement;
+  let depth = 0;
+
+  while (current && depth < 5) {
+    const labelledBy = current.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      const labelElement = document.getElementById(labelledBy);
+      if (labelElement) {
+        return labelElement.textContent.trim();
+      }
+    }
+
+    // Look for a label within the parent
+    const label = current.querySelector('label');
+    if (label && !label.getAttribute('for')) {
+      // This might be a group label
+      return label.textContent.trim();
+    }
+
+    current = current.parentElement;
+    depth++;
+  }
+
+  return null;
+}
+
+async function handleCheckbox(checkboxElement, userData) {
+  try {
+    const question = getQuestionForInput(checkboxElement);
+    if (!question) {
+      return;
+    }
+
+    console.log(`[Gemini Filler] Processing checkbox: "${question}"`);
+
+    // For checkboxes, we ask AI if this should be checked (yes/no question)
+    const modifiedQuestion = `Should the following be checked/enabled? ${question}`;
+
+    let answer;
+    try {
+      answer = await getAIResponse(modifiedQuestion, userData, ['Yes', 'No']);
+    } catch (error) {
+      console.error(`[Gemini Filler] AI error for checkbox "${question}":`, error);
+      return;
+    }
+
+    if (!answer) {
+      return;
+    }
+
+    // Check if answer is positive
+    const shouldCheck = answer.toLowerCase().includes('yes') ||
+                       answer.toLowerCase().includes('tak') ||
+                       answer.toLowerCase().includes('true');
+
+    if (shouldCheck !== checkboxElement.checked) {
+      checkboxElement.checked = shouldCheck;
+      checkboxElement.dispatchEvent(new Event('change', { bubbles: true }));
+      checkboxElement.dispatchEvent(new Event('click', { bubbles: true }));
+
+      console.log(`[Gemini Filler] Checkbox "${question}" set to: ${shouldCheck}`);
+    }
+  } catch (error) {
+    console.error('[Gemini Filler] Error handling checkbox:', error);
+  }
 }
 
 async function handleCustomResumeButtons(processedElements) {
