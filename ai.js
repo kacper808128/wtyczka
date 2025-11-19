@@ -53,10 +53,22 @@ async function getAIResponse(question, userData, options) {
   const apiKey = await getApiKey();
 
   if (apiKey && apiKey !== 'TWOJ_KLUCZ_API' && apiKey !== 'YOUR_API_KEY_HERE') {
-    return getRealAIResponse(question, userData, apiKey, options);
+    try {
+      return await getRealAIResponse(question, userData, apiKey, options);
+    } catch (error) {
+      // If AI fails (timeout, error, etc.), fallback to mock response
+      console.warn('[Gemini Filler] AI failed, falling back to mock response:', error.message);
+      const mockAnswer = getMockAIResponse(question, userData, options);
+      if (mockAnswer) {
+        return mockAnswer;
+      }
+      // If mock also can't answer, return empty string (skip field)
+      console.log('[Gemini Filler] No mock response available, skipping field');
+      return '';
+    }
   } else {
     console.log('[Gemini Filler] No API key configured, using mock responses. Set your API key in extension settings.');
-    return getMockAIResponse(question, userData);
+    return getMockAIResponse(question, userData, options);
   }
 }
 
@@ -89,7 +101,7 @@ Question: "${question}"`;
 
       // Create abort controller for timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout (reduced from 30s)
 
       const response = await fetch(API_URL, {
         method: 'POST',
@@ -174,8 +186,8 @@ Question: "${question}"`;
 
       // Don't retry on these errors
       if (error.name === 'AbortError') {
-        console.error('API request timed out');
-        throw new Error('Request timed out after 30 seconds');
+        console.error('API request timed out after 15 seconds');
+        throw new Error('Request timed out after 15 seconds');
       }
 
       if (error.message.includes('invalid') || error.message.includes('permissions')) {
@@ -197,37 +209,73 @@ Question: "${question}"`;
   throw lastError || new Error('Failed to get AI response after multiple attempts');
 }
 
-function getMockAIResponse(question, userData) {
+function getMockAIResponse(question, userData, options) {
   const lowerQuestion = question.toLowerCase();
 
-  // Simple keyword matching. This is a placeholder for real AI.
-  if (lowerQuestion.includes('first name') || lowerQuestion.includes('imię')) {
-    return userData.firstName;
-  }
-  if (lowerQuestion.includes('last name') || lowerQuestion.includes('nazwisko')) {
-    return userData.lastName;
-  }
-  if (lowerQuestion.includes('email')) {
-    return userData.email;
-  }
-  if (lowerQuestion.includes('phone') || lowerQuestion.includes('telefon')) {
-    return userData.phone;
-  }
-  if (lowerQuestion.includes('linkedin')) {
-    return userData.linkedin;
-  }
-  if (lowerQuestion.includes('github')) {
-    return userData.github;
-  }
-  if (lowerQuestion.includes('website') || lowerQuestion.includes('strona')) {
-    return userData.website;
-  }
-  if (lowerQuestion.includes('experience') || lowerQuestion.includes('doświadczenie')) {
-    return userData.experience;
-  }
-  if (lowerQuestion.includes('education') || lowerQuestion.includes('wykształcenie')) {
-    return userData.education;
+  // Helper function to find best match in options
+  function findInOptions(value, options) {
+    if (!options || !value) return value;
+
+    const lowerValue = value.toString().toLowerCase();
+
+    // Try exact match first
+    for (const option of options) {
+      if (option.toLowerCase() === lowerValue) {
+        return option;
+      }
+    }
+
+    // Try partial match
+    for (const option of options) {
+      if (option.toLowerCase().includes(lowerValue) || lowerValue.includes(option.toLowerCase())) {
+        return option;
+      }
+    }
+
+    return value; // Return original if no match
   }
 
-  return '';
+  // Simple keyword matching. This is a placeholder for real AI.
+  let answer = '';
+
+  if (lowerQuestion.includes('first name') || lowerQuestion.includes('imię')) {
+    answer = userData.firstName || '';
+  } else if (lowerQuestion.includes('last name') || lowerQuestion.includes('nazwisko')) {
+    answer = userData.lastName || '';
+  } else if (lowerQuestion.includes('email') || lowerQuestion.includes('e-mail')) {
+    answer = userData.email || '';
+  } else if (lowerQuestion.includes('phone') || lowerQuestion.includes('telefon') || lowerQuestion.includes('tel.')) {
+    answer = userData.phone || '';
+  } else if (lowerQuestion.includes('linkedin')) {
+    answer = userData.linkedin || '';
+  } else if (lowerQuestion.includes('github')) {
+    answer = userData.github || '';
+  } else if (lowerQuestion.includes('portfolio') || lowerQuestion.includes('website') || lowerQuestion.includes('strona')) {
+    answer = userData.website || userData.portfolio || '';
+  } else if (lowerQuestion.includes('experience') || lowerQuestion.includes('doświadczenie') || lowerQuestion.includes('lata')) {
+    answer = userData.experience || userData.yearsOfExperience || '';
+  } else if (lowerQuestion.includes('education') || lowerQuestion.includes('wykształcenie')) {
+    answer = userData.education || '';
+  } else if (lowerQuestion.includes('start') || lowerQuestion.includes('rozpocząć') || lowerQuestion.includes('availability')) {
+    answer = userData.startDate || userData.availability || 'Immediately';
+  } else if (lowerQuestion.includes('salary') || lowerQuestion.includes('wynagrodzenie')) {
+    answer = userData.salary || userData.expectedSalary || '';
+  } else if (lowerQuestion.includes('location') || lowerQuestion.includes('miasto') || lowerQuestion.includes('lokalizacja')) {
+    answer = userData.location || userData.city || '';
+  } else if (lowerQuestion.includes('address') || lowerQuestion.includes('adres')) {
+    answer = userData.address || '';
+  } else if (lowerQuestion.includes('notification') || lowerQuestion.includes('powiadomienia')) {
+    // For notifications - default to Yes
+    return findInOptions('Yes', options) || 'Yes';
+  } else if (lowerQuestion.includes('consent') || lowerQuestion.includes('zgoda') || lowerQuestion.includes('cookies')) {
+    // For consent - default to Yes
+    return findInOptions('Yes', options) || 'Yes';
+  }
+
+  // If we have an answer and options, try to match it to available options
+  if (answer && options && options.length > 0) {
+    return findInOptions(answer, options);
+  }
+
+  return answer;
 }
