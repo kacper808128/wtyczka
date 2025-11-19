@@ -45,6 +45,31 @@
   <button id="save">Zapisz zmiany</button>
   <p id="status"></p>
 
+  <hr style="margin: 20px 0;">
+
+  <h2>Wyuczone pytania 💡</h2>
+  <p style="color: #666; font-size: 0.9em;">
+    Rozszerzenie automatycznie uczy się pytań z formularzy i zapamiętuje Twoje odpowiedzi.
+  </p>
+
+  <div class="learned-questions-controls">
+    <input type="text" id="question-search" placeholder="Szukaj pytania..." style="width: 300px; padding: 8px;">
+    <button id="refresh-questions">🔄 Odśwież</button>
+    <button id="export-questions">📥 Eksportuj</button>
+    <button id="import-questions">📤 Importuj</button>
+    <button id="clear-questions" style="background: #f44336; color: white;">🗑️ Wyczyść wszystkie</button>
+    <input type="file" id="import-file" accept=".json" style="display: none;">
+  </div>
+
+  <div id="questions-stats" style="margin: 15px 0; padding: 10px; background: #f5f5f5; border-radius: 4px;">
+    <strong>Statystyki:</strong>
+    <span id="total-questions">0</span> pytań |
+    Średni confidence: <span id="avg-confidence">0%</span>
+  </div>
+
+  <div id="questions-list" style="margin-top: 20px;"></div>
+
+  <script src="learning.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

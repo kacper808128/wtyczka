@@ -5,6 +5,11 @@ link.type = 'text/css';
 link.href = chrome.runtime.getURL('styles.css');
 document.head.appendChild(link);
 
+// Inject learning.js
+const script = document.createElement('script');
+script.src = chrome.runtime.getURL('learning.js');
+document.head.appendChild(script);
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "fill_form") {
     showOverlay("Wypełnianie w toku...");
@@ -124,12 +129,31 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       }
 
       let answer;
-      try {
-        answer = await getAIResponse(question, userData, optionsText);
-      } catch (error) {
-        console.error(`[Gemini Filler] AI error for question "${question}":`, error);
-        // Continue to next field instead of failing completely
-        continue;
+      let questionHash = null;
+
+      // First, try to get suggestion from learned questions
+      if (typeof getSuggestionForField === 'function') {
+        try {
+          const suggestion = await getSuggestionForField(element);
+          if (suggestion && suggestion.confidence > 0.75) {
+            answer = suggestion.answer;
+            questionHash = suggestion.questionHash;
+            console.log(`[Gemini Filler] Using learned answer for "${question}" (confidence: ${suggestion.confidence})`);
+          }
+        } catch (err) {
+          console.warn('[Gemini Filler] Error getting learned suggestion:', err);
+        }
+      }
+
+      // If no learned answer, use AI
+      if (!answer) {
+        try {
+          answer = await getAIResponse(question, userData, optionsText);
+        } catch (error) {
+          console.error(`[Gemini Filler] AI error for question "${question}":`, error);
+          // Continue to next field instead of failing completely
+          continue;
+        }
       }
 
       if (!answer) {
@@ -198,6 +222,20 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           element.dispatchEvent(new Event('input', { bubbles: true }));
           element.dispatchEvent(new Event('change', { bubbles: true }));
           aChangeWasMade = true;
+        }
+
+        // Capture the question and answer for learning
+        if (typeof captureQuestion === 'function' && answer) {
+          try {
+            await captureQuestion(element, answer);
+
+            // Add feedback button if we have a question hash
+            if (questionHash && typeof addFeedbackButton === 'function') {
+              addFeedbackButton(element, questionHash);
+            }
+          } catch (err) {
+            console.warn('[Gemini Filler] Error capturing question for learning:', err);
+          }
         }
       } catch (error) {
         console.error(`[Gemini Filler] Error filling element for "${question}":`, error);
