@@ -105,10 +105,18 @@ async function getBatchAIResponse(questions, userData) {
   // Build batch prompt
   let prompt = `You are an expert recruitment form filler. Your task is to match each question to the best answer from user data, or select the best option from provided choices.
 
-User data:
+User data (contains information in both Polish and English):
 ${JSON.stringify(userData, null, 2)}
 
-Questions:
+MATCHING GUIDELINES:
+- Questions may be in Polish or English
+- userData fields may have Polish keys (e.g., "Imię i nazwisko", "Wykształcenie", "Doświadczenie")
+- Match concepts, not exact words (e.g., "Education level" = "Wykształcenie", "Years of experience" = "Lata doświadczenia")
+- For dropdown questions with [Options], you MUST return one of the exact option texts
+- If user data has a related value but it's not in the options list, find the closest matching option
+- Use your judgment to match semantic meaning across languages
+
+Questions to answer:
 `;
 
   questions.forEach((q, idx) => {
@@ -120,19 +128,24 @@ Questions:
   });
 
   prompt += `
-IMPORTANT INSTRUCTIONS:
-1. Return ONLY a valid JSON object, no other text
+CRITICAL INSTRUCTIONS:
+1. Return ONLY a valid JSON object, no other text before or after
 2. Format: {"0": "answer0", "1": "answer1", "2": "answer2", ...}
-3. Use the question index (0, 1, 2...) as keys
-4. When options are provided, MUST use exact option text
-5. If you cannot determine answer from user data, use empty string ""
-6. Do NOT add explanations, comments, or any text outside the JSON
+3. Use the question index (0, 1, 2...) as string keys
+4. When [Options] are provided, you MUST return exact option text (including any special characters)
+5. Match user data values to options intelligently (e.g., if user has "Poland" and options include "Poland (+48)", return "Poland (+48)")
+6. If you cannot determine answer from user data, use empty string ""
+7. Do NOT add explanations, comments, or any text outside the JSON
+8. Do NOT wrap response in markdown code blocks
 
 Example response:
-{"0": "John", "1": "john@example.com", "2": "3-5 years", "3": ""}`;
+{"0": "John Smith", "1": "john@example.com", "2": "3-5 years", "3": "Poland (+48)"}`;
 
   try {
     console.log(`[Gemini Filler] Batch processing ${questions.length} questions...`);
+    console.log('[Gemini Filler] Batch questions:', questions.map((q, i) => `${i}. ${q.question}`).join('\n'));
+    console.log('[Gemini Filler] User data keys:', Object.keys(userData).join(', '));
+
     const response = await getRealAIResponse(prompt, {}, apiKey, null, 30000); // 30s timeout for batch
 
     // Parse JSON response
@@ -146,7 +159,15 @@ Example response:
       }
 
       const parsed = JSON.parse(cleanResponse);
-      console.log(`[Gemini Filler] Batch AI returned ${Object.keys(parsed).length} answers`);
+      console.log(`[Gemini Filler] Batch AI returned ${Object.keys(parsed).length} answers:`, parsed);
+
+      // Log which questions got empty answers
+      Object.keys(parsed).forEach(key => {
+        if (!parsed[key] || parsed[key] === '') {
+          console.warn(`[Gemini Filler] Batch AI returned empty for question ${key}: "${questions[key]?.question}"`);
+        }
+      });
+
       return parsed;
     } catch (parseError) {
       console.error('[Gemini Filler] Failed to parse batch AI response:', parseError);

@@ -131,21 +131,30 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       // Fill all fields from batch
       for (let i = 0; i < batchElements.length; i++) {
         const element = batchElements[i];
-        const answer = batchAnswers[i];
+        let answer = batchAnswers[i];
         const metadata = batchMetadata[i];
 
+        // If batch AI returned empty, try mock response as fallback
         if (!answer || answer === '') {
-          console.log(`[Gemini Filler] No batch answer for: "${batchQuestions[i].question}"`);
-          continue;
+          console.log(`[Gemini Filler] No batch answer for: "${batchQuestions[i].question}", trying mock fallback...`);
+          const mockAnswer = getMockAIResponse(batchQuestions[i].question, userData, metadata.optionsText);
+          if (mockAnswer) {
+            answer = mockAnswer;
+            console.log(`[Gemini Filler] Mock fallback found: "${answer}"`);
+          } else {
+            console.log(`[Gemini Filler] No mock fallback either, will retry in second pass`);
+            continue;  // Don't add to processedElements - let second pass retry with full AI
+          }
         }
-
-        processedElements.add(element);
 
         try {
           console.log(`[Gemini Filler] Batch filling: "${batchQuestions[i].question}" = "${answer}"`);
 
+          let filled = false;  // Track if we actually filled the field
+
           if (element.tagName === 'SELECT') {
             const bestMatchText = findBestMatch(answer, metadata.optionsText);
+            console.log(`[Gemini Filler] findBestMatch("${answer}") -> "${bestMatchText}" from ${metadata.optionsText?.length || 0} options`);
             if (bestMatchText) {
               const bestMatchOption = Array.from(element.options).find(o => o.text === bestMatchText);
               if (bestMatchOption) {
@@ -159,7 +168,12 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 element.dispatchEvent(inputEvent);
                 element.dispatchEvent(changeEvent);
                 aChangeWasMade = true;
+                filled = true;
+              } else {
+                console.warn(`[Gemini Filler] Matched text "${bestMatchText}" but option not found in SELECT`);
               }
+            } else {
+              console.warn(`[Gemini Filler] findBestMatch failed for answer "${answer}" in SELECT with ${metadata.optionsText?.length} options`);
             }
           } else if (element.getAttribute('role') === 'radiogroup') {
             const radioButtons = Array.from(element.querySelectorAll('button[role="radio"]'));
@@ -172,14 +186,21 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             });
 
             const bestMatchText = findBestMatch(answer, optionDetails.map(o => o.text));
+            console.log(`[Gemini Filler] findBestMatch("${answer}") -> "${bestMatchText}" for radiogroup with ${optionDetails.length} options`);
             if (bestMatchText) {
               const matchingOption = optionDetails.find(o => o.text === bestMatchText);
               if (matchingOption) {
                 matchingOption.button.click();
                 aChangeWasMade = true;
+                filled = true;
+              } else {
+                console.warn(`[Gemini Filler] Matched text "${bestMatchText}" but radio button not found`);
               }
+            } else {
+              console.warn(`[Gemini Filler] findBestMatch failed for answer "${answer}" in radiogroup with ${optionDetails.length} options`);
             }
           } else {
+            // Text input, textarea, etc.
             element.value = answer;
             await new Promise(resolve => setTimeout(resolve, 200));
             const inputEvent = new Event('input', { bubbles: true });
@@ -189,10 +210,20 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             element.dispatchEvent(inputEvent);
             element.dispatchEvent(changeEvent);
             aChangeWasMade = true;
+            filled = true;
+            console.log(`[Gemini Filler] Filled text input with: "${answer}"`);
+          }
+
+          // Only mark as processed if we actually filled it
+          if (filled) {
+            processedElements.add(element);
+            console.log(`[Gemini Filler] Marked element as processed: "${batchQuestions[i].question}"`);
+          } else {
+            console.log(`[Gemini Filler] Element NOT marked as processed (will retry): "${batchQuestions[i].question}"`);
           }
 
           // Capture for learning (source is 'ai' from batch)
-          if (typeof captureQuestion === 'function') {
+          if (filled && typeof captureQuestion === 'function') {
             try {
               const capturedHash = await captureQuestion(element, answer);
               if (capturedHash && typeof addFeedbackButton === 'function') {
@@ -238,15 +269,26 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         // Custom dropdowns
         if (element.tagName === 'BUTTON' && element.getAttribute('aria-haspopup') === 'dialog') {
           const question = getQuestionForInput(element);
-          if (!question) continue;
+          if (!question) {
+            console.log('[Gemini Filler] Custom dropdown: no question found, skipping');
+            continue;
+          }
 
-          processedElements.add(element);
+          let filled = false;  // Track if we successfully filled this
 
           try {
+            console.log(`[Gemini Filler] Processing custom dropdown: "${question}"`);
+
             const result = await getAIResponse(question, userData, null);
             const answer = result.answer;
             const answerSource = result.source;
-            if (!answer) continue;
+
+            if (!answer) {
+              console.log(`[Gemini Filler] Custom dropdown: no answer for "${question}"`);
+              continue;  // Don't mark as processed - let second pass retry
+            }
+
+            console.log(`[Gemini Filler] Custom dropdown: got answer "${answer}" from ${answerSource}`);
 
             element.click();
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -262,12 +304,18 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               optionsInDialog = Array.from(document.querySelectorAll('[role="option"]'));
             }
 
+            console.log(`[Gemini Filler] Custom dropdown: found ${optionsInDialog.length} options in dialog`);
+
             const bestMatch = findBestMatch(answer, optionsInDialog.map(o => o.textContent));
+            console.log(`[Gemini Filler] Custom dropdown: findBestMatch("${answer}") -> "${bestMatch}"`);
+
             if (bestMatch) {
               const bestMatchElement = optionsInDialog.find(o => o.textContent === bestMatch);
               if (bestMatchElement) {
                 bestMatchElement.click();
                 aChangeWasMade = true;
+                filled = true;
+                console.log(`[Gemini Filler] Custom dropdown: successfully clicked option "${bestMatch}"`);
 
                 // Capture for learning and add feedback button
                 if (typeof captureQuestion === 'function') {
@@ -280,10 +328,23 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                     console.warn('[Gemini Filler] Error capturing custom dropdown question:', err);
                   }
                 }
+              } else {
+                console.warn(`[Gemini Filler] Custom dropdown: matched text "${bestMatch}" but element not found`);
               }
+            } else {
+              console.warn(`[Gemini Filler] Custom dropdown: no match for "${answer}" among ${optionsInDialog.length} options`);
+            }
+
+            // Only mark as processed if we successfully filled it
+            if (filled) {
+              processedElements.add(element);
+              console.log(`[Gemini Filler] Custom dropdown: marked as processed`);
+            } else {
+              console.log(`[Gemini Filler] Custom dropdown: NOT marked as processed (will retry in second pass)`);
             }
           } catch (e) {
             console.error(`[Gemini Filler] Error with custom dropdown:`, e);
+            // Don't add to processedElements on error - allow retry
           }
           continue;
         }
