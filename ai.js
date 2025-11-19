@@ -80,6 +80,101 @@ async function getAIResponse(question, userData, options) {
   }
 }
 
+/**
+ * Batch process multiple questions at once for efficiency
+ * @param {Array} questions - Array of {question: string, options: array|null}
+ * @param {Object} userData - User's data
+ * @returns {Object} - Mapping of question to answer
+ */
+async function getBatchAIResponse(questions, userData) {
+  const apiKey = await getApiKey();
+
+  if (!apiKey || apiKey === 'TWOJ_KLUCZ_API' || apiKey === 'YOUR_API_KEY_HERE') {
+    console.log('[Gemini Filler] No API key for batch processing, using mock responses');
+    // Fallback to individual mock responses
+    const result = {};
+    questions.forEach((q, idx) => {
+      const mockAnswer = getMockAIResponse(q.question, userData, q.options);
+      if (mockAnswer) {
+        result[idx] = mockAnswer;
+      }
+    });
+    return result;
+  }
+
+  // Build batch prompt
+  let prompt = `You are an expert recruitment form filler. Your task is to match each question to the best answer from user data, or select the best option from provided choices.
+
+User data:
+${JSON.stringify(userData, null, 2)}
+
+Questions:
+`;
+
+  questions.forEach((q, idx) => {
+    prompt += `${idx}. ${q.question}`;
+    if (q.options && q.options.length > 0) {
+      prompt += ` [Options: ${q.options.join(', ')}]`;
+    }
+    prompt += '\n';
+  });
+
+  prompt += `
+IMPORTANT INSTRUCTIONS:
+1. Return ONLY a valid JSON object, no other text
+2. Format: {"0": "answer0", "1": "answer1", "2": "answer2", ...}
+3. Use the question index (0, 1, 2...) as keys
+4. When options are provided, MUST use exact option text
+5. If you cannot determine answer from user data, use empty string ""
+6. Do NOT add explanations, comments, or any text outside the JSON
+
+Example response:
+{"0": "John", "1": "john@example.com", "2": "3-5 years", "3": ""}`;
+
+  try {
+    console.log(`[Gemini Filler] Batch processing ${questions.length} questions...`);
+    const response = await getRealAIResponse(prompt, {}, apiKey, null);
+
+    // Parse JSON response
+    try {
+      // Remove markdown code blocks if present
+      let cleanResponse = response.trim();
+      if (cleanResponse.startsWith('```json')) {
+        cleanResponse = cleanResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+      } else if (cleanResponse.startsWith('```')) {
+        cleanResponse = cleanResponse.replace(/```\n?/g, '');
+      }
+
+      const parsed = JSON.parse(cleanResponse);
+      console.log(`[Gemini Filler] Batch AI returned ${Object.keys(parsed).length} answers`);
+      return parsed;
+    } catch (parseError) {
+      console.error('[Gemini Filler] Failed to parse batch AI response:', parseError);
+      console.error('[Gemini Filler] Response was:', response);
+      // Fallback to individual mock responses
+      const result = {};
+      questions.forEach((q, idx) => {
+        const mockAnswer = getMockAIResponse(q.question, userData, q.options);
+        if (mockAnswer) {
+          result[idx] = mockAnswer;
+        }
+      });
+      return result;
+    }
+  } catch (error) {
+    console.error('[Gemini Filler] Batch AI failed:', error);
+    // Fallback to individual mock responses
+    const result = {};
+    questions.forEach((q, idx) => {
+      const mockAnswer = getMockAIResponse(q.question, userData, q.options);
+      if (mockAnswer) {
+        result[idx] = mockAnswer;
+      }
+    });
+    return result;
+  }
+}
+
 async function getRealAIResponse(question, userData, apiKey, options) {
   let prompt = `You are an expert recruitment form filler. Your task is to select the best option from a list for a given question, based on the user's data.
 
