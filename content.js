@@ -245,6 +245,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           try {
             const result = await getAIResponse(question, userData, null);
             const answer = result.answer;
+            const answerSource = result.source;
             if (!answer) continue;
 
             element.click();
@@ -267,6 +268,18 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               if (bestMatchElement) {
                 bestMatchElement.click();
                 aChangeWasMade = true;
+
+                // Capture for learning and add feedback button
+                if (typeof captureQuestion === 'function') {
+                  try {
+                    const capturedHash = await captureQuestion(element, answer);
+                    if (capturedHash && typeof addFeedbackButton === 'function' && answerSource === 'ai') {
+                      addFeedbackButton(element, capturedHash);
+                    }
+                  } catch (err) {
+                    console.warn('[Gemini Filler] Error capturing custom dropdown question:', err);
+                  }
+                }
               }
             }
           } catch (e) {
@@ -528,22 +541,32 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
     const allFields = document.querySelectorAll('input:not([type="file"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="hidden"]), textarea, select');
 
     let missedFields = [];
+    let debugInfo = [];
     for (const field of allFields) {
+      const isProcessed = processedElements.has(field);
+      const isVisible = field.offsetParent !== null;
+      const isEmpty = !field.value || field.value === '';
+      const isEnabled = !field.disabled;
+      const isEditable = !field.readOnly;
+
       // Check if field is visible, not processed, and empty
-      if (!processedElements.has(field) &&
-          field.offsetParent !== null &&
-          !field.value &&
-          !field.disabled &&
-          !field.readOnly) {
+      if (!isProcessed && isVisible && isEmpty && isEnabled && isEditable) {
         missedFields.push(field);
+        debugInfo.push({
+          id: field.id,
+          name: field.name,
+          tagName: field.tagName,
+          value: field.value
+        });
       }
     }
 
     if (missedFields.length > 0) {
-      console.log(`[Gemini Filler] Second pass: found ${missedFields.length} missed fields, retrying...`);
+      console.log(`[Gemini Filler] Second pass: found ${missedFields.length} missed fields:`, debugInfo);
       await fillFormWithAI(userData, processedElements, 0, true);
     } else {
       console.log('[Gemini Filler] Second pass: no missed fields found.');
+      console.log(`[Gemini Filler] Total fields checked: ${allFields.length}, Processed: ${processedElements.size}`);
     }
   }
 }
@@ -556,14 +579,27 @@ function findBestMatch(answer, options) {
   let bestMatch = null;
   let maxScore = 0;
 
-  const answerWords = answer.toLowerCase().split(/\s+/);
+  // Normalize answer by removing special chars for better matching
+  const normalizedAnswer = answer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
+  const answerWords = normalizedAnswer.split(/\s+/).filter(w => w.length > 0);
 
   for (const optionText of options) {
+    // Try exact match first
     if (optionText.toLowerCase() === answer.toLowerCase()) {
       return optionText;
     }
 
-    const optionWords = optionText.toLowerCase().split(/\s+/);
+    // Try substring match (for cases like "+48" in "Poland (+48)")
+    if (optionText.toLowerCase().includes(answer.toLowerCase()) ||
+        answer.toLowerCase().includes(optionText.toLowerCase())) {
+      return optionText;
+    }
+
+    // Normalize option text similarly
+    const normalizedOption = optionText.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
+    const optionWords = normalizedOption.split(/\s+/).filter(w => w.length > 0);
+
+    // Word-based scoring
     const score = answerWords.filter(word => optionWords.includes(word)).length;
 
     if (score > maxScore) {
@@ -866,31 +902,53 @@ async function handleCustomResumeButtons(processedElements) {
 
         if (resumeKeywords.some(keyword => combinedText.includes(keyword))) {
           console.log('[Gemini Filler] Found custom resume upload button:', button);
+          console.log('[Gemini Filler] Combined text:', combinedText);
           processedElements.add(button);
 
           try {
             // Click the button to open the file picker
             button.click();
+            console.log('[Gemini Filler] Clicked custom upload button, waiting for file input...');
 
             // Wait for file input to appear (it might be dynamically created)
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 1500)); // Increased to 1.5s
 
             // Look for any newly appeared file inputs
             const fileInputs = document.querySelectorAll('input[type="file"]');
+            console.log(`[Gemini Filler] Found ${fileInputs.length} file inputs after click`);
+
+            let foundAndHandled = false;
             for (const fileInput of fileInputs) {
-              if (!processedElements.has(fileInput) && document.contains(fileInput)) {
+              const alreadyProcessed = processedElements.has(fileInput);
+              const inDom = document.contains(fileInput);
+              console.log('[Gemini Filler] Checking file input:', {
+                id: fileInput.id,
+                alreadyProcessed,
+                inDom,
+                offsetParent: fileInput.offsetParent,
+                displayStyle: fileInput.style.display
+              });
+
+              if (!alreadyProcessed && inDom) {
                 // Check if it's visible or in a modal/dialog
                 const isVisible = fileInput.offsetParent !== null ||
                                  fileInput.closest('[role="dialog"]') !== null ||
                                  fileInput.closest('.modal') !== null;
 
                 if (isVisible || fileInput.style.display !== 'none') {
-                  console.log('[Gemini Filler] Found file input after clicking custom button');
+                  console.log('[Gemini Filler] Found valid file input, attempting to attach CV...');
                   await handleFileInput(fileInput);
                   processedElements.add(fileInput);
+                  foundAndHandled = true;
                   break; // Only handle the first one
+                } else {
+                  console.log('[Gemini Filler] File input not visible, skipping');
                 }
               }
+            }
+
+            if (!foundAndHandled && fileInputs.length === 0) {
+              console.warn('[Gemini Filler] No file inputs found after clicking custom button. May need to manually trigger.');
             }
           } catch (error) {
             console.error('[Gemini Filler] Error handling custom upload button:', error);
