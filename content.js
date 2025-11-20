@@ -1199,7 +1199,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               aChangeWasMade = true;
               filled = true;
             } else {
-              console.warn(`[Gemini Filler] Failed to fill selectize with: "${answer}"`);
+              console.warn(`[Gemini Filler] Failed to fill selectize for question: "${batchQuestions[i].question}"`);
             }
           } else {
             // Text input, textarea, etc.
