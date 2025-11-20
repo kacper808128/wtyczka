@@ -20,6 +20,12 @@ async function captureQuestionBridge(element, answer) {
   return new Promise((resolve) => {
     const requestId = `req_${Date.now()}_${requestIdCounter++}`;
 
+    // Extract question text and field info from element (can't pass DOM element through event)
+    const questionText = getQuestionForInput(element);
+    const fieldType = element.type || element.tagName.toLowerCase();
+    const fieldName = element.name || '';
+    const fieldId = element.id || '';
+
     const responseHandler = (event) => {
       if (event.detail.requestId === requestId) {
         document.removeEventListener('learning:captureQuestionResponse', responseHandler);
@@ -36,8 +42,9 @@ async function captureQuestionBridge(element, answer) {
       resolve(null);
     }, 5000);
 
+    // Pass data, not DOM element (can't cross isolated world boundary)
     document.dispatchEvent(new CustomEvent('learning:captureQuestion', {
-      detail: { element, answer, requestId }
+      detail: { questionText, answer, fieldType, fieldName, fieldId, requestId }
     }));
   });
 }
@@ -45,6 +52,9 @@ async function captureQuestionBridge(element, answer) {
 async function getSuggestionForFieldBridge(element) {
   return new Promise((resolve) => {
     const requestId = `req_${Date.now()}_${requestIdCounter++}`;
+
+    // Extract question text from element (can't pass DOM element through event)
+    const questionText = getQuestionForInput(element);
 
     const responseHandler = (event) => {
       if (event.detail.requestId === requestId) {
@@ -62,15 +72,21 @@ async function getSuggestionForFieldBridge(element) {
       resolve(null);
     }, 5000);
 
+    // Pass data, not DOM element
     document.dispatchEvent(new CustomEvent('learning:getSuggestion', {
-      detail: { element, requestId }
+      detail: { questionText, requestId }
     }));
   });
 }
 
 function addFeedbackButtonBridge(element, questionHash) {
+  // For feedback button, we need to store reference to element
+  // Store it with a unique ID that can be used to find it later
+  const elementId = `learning_feedback_${Date.now()}_${requestIdCounter++}`;
+  element.setAttribute('data-learning-feedback-id', elementId);
+
   document.dispatchEvent(new CustomEvent('learning:addFeedbackButton', {
-    detail: { element, questionHash }
+    detail: { elementId, questionHash }
   }));
 }
 
