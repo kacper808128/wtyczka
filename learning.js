@@ -511,3 +511,19 @@ async function importLearnedQuestions(jsonData) {
 async function clearAllLearnedQuestions() {
   await saveLearnedQuestions([]);
 }
+
+// ==================== Export to Window ====================
+// Export functions to window object so content.js (content script) can access them
+// learning.js runs in page context, content.js runs in content script context
+window.captureQuestion = captureQuestion;
+window.getSuggestionForField = getSuggestionForField;
+window.addFeedbackButton = addFeedbackButton;
+window.recordFeedback = recordFeedback;
+window.getLearnedQuestions = getLearnedQuestions;
+window.clearAllLearnedQuestions = clearAllLearnedQuestions;
+
+console.log('[Learning] Functions exported to window:', {
+  captureQuestion: typeof window.captureQuestion,
+  getSuggestionForField: typeof window.getSuggestionForField,
+  addFeedbackButton: typeof window.addFeedbackButton
+});
