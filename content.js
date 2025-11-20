@@ -170,6 +170,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function fillFormWithAI(userData, processedElements = new Set(), depth = 0, isRetry = false, missingFields = null) {
   console.log(`[Gemini Filler] fillFormWithAI called: depth=${depth}, isRetry=${isRetry}, missingFields=${missingFields ? `array[${missingFields.length}]` : 'null'}`);
 
+  // Helper function to check if answer is a placeholder (AI sometimes returns these)
+  const isPlaceholder = (text) => {
+    if (!text) return true;
+    const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
+    return placeholderPatterns.test(text.trim());
+  };
+
   // Track missing fields only on first call (depth 0)
   if (depth === 0 && !missingFields) {
     missingFields = [];
@@ -262,13 +269,6 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         const metadata = batchMetadata[i];
         let answerSource = null; // Track if answer is from 'ai' or 'mock'
 
-        // Check if answer is a placeholder (AI sometimes returns these)
-        const isPlaceholder = (text) => {
-          if (!text) return true;
-          const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
-          return placeholderPatterns.test(text.trim());
-        };
-
         // If batch AI returned empty or placeholder, try mock response as fallback
         if (!answer || answer === '' || isPlaceholder(answer)) {
           if (isPlaceholder(answer)) {
@@ -302,17 +302,34 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           // Answer came from batch AI - check if it's actually from userData
           // Check both exact match and partial match (e.g., "Wyższe" in userData matches "Wyższe - magister" from SELECT)
           const answerLower = answer.toLowerCase();
+
+          // Debug: log all userData values for this check
+          console.log(`[Gemini Filler] Checking if answer "${answer}" matches any userData value...`);
+          const userDataValues = Object.entries(userData).map(([key, val]) => {
+            if (!val) return null;
+            return { key, value: val, valueLower: val.toString().toLowerCase() };
+          }).filter(Boolean);
+          console.log(`[Gemini Filler] userData values to check:`, userDataValues.map(v => `${v.key}="${v.value}"`).join(', '));
+
           const isFromUserData = Object.values(userData).some(val => {
             if (!val) return false;
             const valStr = val.toString().toLowerCase();
             // Exact match OR userData value is contained in answer OR answer is contained in userData value
-            return valStr === answerLower ||
+            const matches = valStr === answerLower ||
                    (valStr.length > 3 && answerLower.includes(valStr)) ||
                    (answerLower.length > 3 && valStr.includes(answerLower));
+
+            if (matches) {
+              console.log(`[Gemini Filler] ✓ Match found! answer "${answer}" matches userData value "${val}"`);
+            }
+            return matches;
           });
+
           answerSource = isFromUserData ? 'mock' : 'ai';
           if (isFromUserData) {
             console.log(`[Gemini Filler] Answer "${answer}" matches userData value, marking as mock`);
+          } else {
+            console.log(`[Gemini Filler] Answer "${answer}" does NOT match any userData value, marking as ai`);
           }
         }
 
@@ -404,8 +421,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             console.log(`[Gemini Filler] Element NOT marked as processed (will retry): "${batchQuestions[i].question}"`);
           }
 
-          // Capture for learning (only if answer from AI, not mock)
-          if (filled && answerSource === 'ai') {
+          // Capture for learning (only if answer from AI, not mock, and not placeholder)
+          if (filled && answerSource === 'ai' && !isPlaceholder(answer)) {
             try {
               const capturedHash = await captureQuestionBridge(element, answer);
               if (capturedHash) {
@@ -416,6 +433,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             } catch (err) {
               console.warn('[Gemini Filler] Error capturing batch question:', err);
             }
+          } else if (filled && answerSource === 'ai' && isPlaceholder(answer)) {
+            console.log(`[Gemini Filler] Skipping learning capture for placeholder answer: "${answer}"`);
           }
         } catch (error) {
           console.error(`[Gemini Filler] Error filling batch element:`, error);
@@ -512,8 +531,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 filled = true;
                 console.log(`[Gemini Filler] Custom dropdown: successfully clicked option "${bestMatch}"`);
 
-                // Capture for learning and add feedback button (only for AI answers)
-                if (answerSource === 'ai') {
+                // Capture for learning and add feedback button (only for AI answers, not placeholders)
+                if (answerSource === 'ai' && !isPlaceholder(answer)) {
                   try {
                     const capturedHash = await captureQuestionBridge(element, answer);
                     if (capturedHash) {
