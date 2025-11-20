@@ -260,6 +260,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         const element = batchElements[i];
         let answer = batchAnswers[i];
         const metadata = batchMetadata[i];
+        let answerSource = null; // Track if answer is from 'ai' or 'mock'
 
         // Check if answer is a placeholder (AI sometimes returns these)
         const isPlaceholder = (text) => {
@@ -279,6 +280,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           const mockAnswer = getMockAIResponse(batchQuestions[i].question, userData, metadata.optionsText);
           if (mockAnswer && !isPlaceholder(mockAnswer)) {
             answer = mockAnswer;
+            answerSource = 'mock';
             console.log(`[Gemini Filler] Mock fallback found: "${answer}"`);
           } else {
             console.log(`[Gemini Filler] No mock fallback either, will retry in second pass`);
@@ -296,6 +298,9 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             }
             continue;  // Don't add to processedElements - let second pass retry with full AI
           }
+        } else {
+          // Answer came from batch AI (not mock fallback)
+          answerSource = 'ai';
         }
 
         try {
@@ -386,8 +391,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             console.log(`[Gemini Filler] Element NOT marked as processed (will retry): "${batchQuestions[i].question}"`);
           }
 
-          // Capture for learning (source is 'ai' from batch)
-          if (filled) {
+          // Capture for learning (only if answer from AI, not mock)
+          if (filled && answerSource === 'ai') {
             try {
               const capturedHash = await captureQuestionBridge(element, answer);
               if (capturedHash) {
