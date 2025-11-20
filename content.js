@@ -626,20 +626,81 @@ async function fillSelectize(selectElement, value, options) {
  */
 async function fillCustomDropdown(element, value) {
   try {
+    // IMPORTANT: First, close any previously opened dropdowns to avoid confusion
+    const openDropdowns = document.querySelectorAll('[role="listbox"]:not([hidden]), [role="menu"]:not([hidden])');
+    if (openDropdowns.length > 0) {
+      console.log(`[Custom Dropdown] Closing ${openDropdowns.length} previously opened dropdown(s)`);
+      // Try to close by clicking escape or clicking outside
+      document.body.click();
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+
     // Click to open dropdown
+    const elementLabel = getQuestionForInput(element);
+    console.log(`[Custom Dropdown] Opening dropdown for "${elementLabel}" (id="${element.id}")`);
     element.click();
 
     // Wait for dropdown to open
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await new Promise(resolve => setTimeout(resolve, 500));
 
-    // Find the dropdown menu
-    const listbox = document.querySelector(`[role="listbox"][aria-labelledby="${element.id}"]`) ||
-                   document.querySelector(`[role="menu"][aria-labelledby="${element.id}"]`) ||
-                   document.querySelector('[role="listbox"]:not([hidden])') ||
-                   document.querySelector('[role="menu"]:not([hidden])');
+    // Find the dropdown menu - try multiple strategies with detailed logging
+    let listbox = null;
+
+    // Strategy 1: Use aria-labelledby
+    if (element.id) {
+      listbox = document.querySelector(`[role="listbox"][aria-labelledby="${element.id}"]`);
+      if (listbox) {
+        console.log(`[Custom Dropdown] ✓ Found listbox via aria-labelledby="${element.id}"`);
+      }
+    }
+
+    // Strategy 2: Use aria-controls
+    if (!listbox) {
+      const ariaControls = element.getAttribute('aria-controls');
+      if (ariaControls) {
+        listbox = document.getElementById(ariaControls);
+        if (listbox) {
+          console.log(`[Custom Dropdown] ✓ Found listbox via aria-controls="${ariaControls}"`);
+        }
+      }
+    }
+
+    // Strategy 3: Find listbox that appeared most recently (after our click)
+    if (!listbox) {
+      const allListboxes = Array.from(document.querySelectorAll('[role="listbox"]:not([hidden]), [role="menu"]:not([hidden])'));
+      console.log(`[Custom Dropdown] Found ${allListboxes.length} visible listbox(es) on page`);
+
+      if (allListboxes.length === 1) {
+        // Only one visible listbox - it must be ours
+        listbox = allListboxes[0];
+        console.log(`[Custom Dropdown] ✓ Using the only visible listbox (id="${listbox.id || 'no-id'}")`);
+      } else if (allListboxes.length > 1) {
+        // Multiple listboxes - try to find the one closest to our button
+        console.warn(`[Custom Dropdown] ⚠ Multiple listboxes found! Trying to find the correct one...`);
+
+        // Try to find listbox that is a descendant of a dialog/popup that appeared
+        const dialogs = document.querySelectorAll('[role="dialog"]:not([hidden]), .popup:not([hidden])');
+        for (const dialog of dialogs) {
+          const dialogListbox = dialog.querySelector('[role="listbox"], [role="menu"]');
+          if (dialogListbox && allListboxes.includes(dialogListbox)) {
+            listbox = dialogListbox;
+            console.log(`[Custom Dropdown] ✓ Found listbox inside dialog (id="${listbox.id || 'no-id'}")`);
+            break;
+          }
+        }
+
+        // If still not found, use the first one but log a warning
+        if (!listbox) {
+          listbox = allListboxes[0];
+          console.warn(`[Custom Dropdown] ⚠ Using first listbox as fallback - this might be wrong!`);
+        }
+      }
+    }
 
     if (!listbox) {
-      console.warn('[Custom Dropdown] Could not find opened listbox');
+      console.warn(`[Custom Dropdown] ✗ Could not find opened listbox for "${elementLabel}"`);
+      // Try to close the dropdown we just opened
+      element.click();
       return false;
     }
 
@@ -650,12 +711,15 @@ async function fillCustomDropdown(element, value) {
       text: opt.textContent.trim()
     }));
 
+    console.log(`[Custom Dropdown] Listbox contains ${options.length} options. First 5:`, options.slice(0, 5).map(o => o.text));
+
     // Fuzzy match value to options
     const optionTexts = options.map(o => o.text);
     const matchedText = fuzzyMatch(value, optionTexts);
 
     if (!matchedText) {
-      console.warn('[Custom Dropdown] No match found for:', value);
+      console.warn(`[Custom Dropdown] ✗ No match for "${value}" in ${options.length} options for "${elementLabel}"`);
+      console.warn(`[Custom Dropdown] Available options:`, optionTexts);
       // Close dropdown
       element.click();
       return false;
@@ -665,7 +729,7 @@ async function fillCustomDropdown(element, value) {
     const matchedOption = options.find(o => o.text === matchedText);
     if (matchedOption) {
       matchedOption.element.click();
-      console.log(`[Custom Dropdown] Selected: ${matchedText}`);
+      console.log(`[Custom Dropdown] ✓ Selected "${matchedText}" for "${elementLabel}"`);
 
       // Wait for dropdown to close
       await new Promise(resolve => setTimeout(resolve, 200));
