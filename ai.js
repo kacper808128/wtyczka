@@ -598,12 +598,25 @@ function getMockAIResponse(question, userData, options) {
     answer = findUserDataValue(['contract', 'umowa', 'typ umowy']) || '';
   } else if (lowerQuestion.includes('work mode') || lowerQuestion.includes('tryb pracy') || lowerQuestion.includes('remote')) {
     answer = findUserDataValue(['workMode', 'tryb pracy', 'work mode', 'remote', 'hybrid']) || '';
+  } else if (lowerQuestion.includes('work permit') || lowerQuestion.includes('work authorization') ||
+             lowerQuestion.includes('right to work') || lowerQuestion.includes('work visa') ||
+             lowerQuestion.includes('prawo do pracy') || lowerQuestion.includes('zezwolenie na pracę') ||
+             lowerQuestion.includes('autoryzacja pracy')) {
+    // For work permit questions - check if we have specific data, otherwise default to Yes
+    answer = findUserDataValue(['work permit', 'prawo do pracy', 'zezwolenie', 'work authorization']) || '';
+    if (!answer) {
+      // If no specific work permit data, default to Yes (assume user can work)
+      return findInOptions('Yes', options) || 'Yes';
+    }
   } else if (lowerQuestion.includes('notification') || lowerQuestion.includes('powiadomienia')) {
     // For notifications - default to Yes
     return findInOptions('Yes', options) || 'Yes';
   } else if (lowerQuestion.includes('consent') || lowerQuestion.includes('zgoda') || lowerQuestion.includes('cookies')) {
     // For consent - default to Yes
     return findInOptions('Yes', options) || 'Yes';
+  } else if (lowerQuestion.includes('gender') || lowerQuestion.includes('płeć')) {
+    // For gender questions
+    answer = findUserDataValue(['gender', 'płeć']) || '';
   }
 
   // SPECIAL CASE: If answer looks like a relative date (e.g., "trzy miesiące od teraz")
