@@ -204,7 +204,9 @@ function detectFieldType(element) {
       if (dropdown) {
         const optionElements = dropdown.querySelectorAll('.option');
         if (optionElements.length > 0) {
-          metadata.options = Array.from(optionElements).map(opt => opt.textContent.trim()).filter(Boolean);
+          metadata.options = Array.from(optionElements)
+            .map(opt => opt && opt.textContent ? opt.textContent.trim() : '')
+            .filter(Boolean);
           console.log(`[Selectize Detection] Found ${metadata.options.length} options in dropdown for ${element.id}`);
         }
       }
@@ -217,10 +219,10 @@ function detectFieldType(element) {
     }
 
     // Fallback: use original SELECT options if found
-    if ((!metadata.options || metadata.options.length === 0) && element.options.length > 0) {
+    if ((!metadata.options || metadata.options.length === 0) && element.options && element.options.length > 0) {
       const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
       metadata.options = Array.from(element.options)
-        .map(o => o.text.trim())
+        .map(o => o && o.text ? o.text.trim() : '')
         .filter(t => t && !placeholderPatterns.test(t));
       console.log(`[Selectize Detection] Using ${metadata.options.length} options from SELECT element for ${element.id}`);
     }
@@ -232,9 +234,9 @@ function detectFieldType(element) {
   if (element.tagName === 'SELECT') {
     metadata.type = 'select';
     const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
-    metadata.options = Array.from(element.options)
-      .map(o => o.text.trim())
-      .filter(t => t && !placeholderPatterns.test(t));
+    metadata.options = element.options ? Array.from(element.options)
+      .map(o => o && o.text ? o.text.trim() : '')
+      .filter(t => t && !placeholderPatterns.test(t)) : [];
     return metadata;
   }
 
@@ -296,7 +298,9 @@ function detectFieldType(element) {
 
     if (listbox) {
       const optionElements = listbox.querySelectorAll('[role="option"], [role="menuitem"]');
-      metadata.options = Array.from(optionElements).map(opt => opt.textContent.trim()).filter(Boolean);
+      metadata.options = Array.from(optionElements)
+        .map(opt => opt && opt.textContent ? opt.textContent.trim() : '')
+        .filter(Boolean);
       console.log(`[Field Detection] Found ${metadata.options.length} options for custom dropdown "${element.id}"`);
     }
     return metadata;
@@ -346,7 +350,9 @@ function detectFieldType(element) {
 function fuzzyMatch(answer, options) {
   if (!answer || !options || options.length === 0) return null;
 
-  const answerLower = answer.toLowerCase().trim();
+  // Ensure answer is a string
+  const answerStr = typeof answer === 'string' ? answer : String(answer);
+  const answerLower = answerStr.toLowerCase().trim();
 
   // 1. Exact match (case insensitive)
   const exactMatch = options.find(opt => opt.toLowerCase().trim() === answerLower);
@@ -354,15 +360,23 @@ function fuzzyMatch(answer, options) {
 
   // 2. Substring match (answer contains option or vice versa)
   const substringMatch = options.find(opt => {
+    // Skip non-string options
+    if (typeof opt !== 'string') return false;
+
     const optLower = opt.toLowerCase().trim();
     return answerLower.includes(optLower) || optLower.includes(answerLower);
   });
   if (substringMatch) return substringMatch;
 
   // 3. Word overlap (count matching words)
-  const answerWords = answerLower.split(/\s+/).filter(w => w.length > 2);
+  const answerWords = answerLower.split(/\s+/).filter(w => w && w.length > 2);
   const optionScores = options.map(opt => {
-    const optWords = opt.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    // Skip non-string options
+    if (typeof opt !== 'string') {
+      return { option: opt, score: 0 };
+    }
+
+    const optWords = opt.toLowerCase().split(/\s+/).filter(w => w && w.length > 2);
     const matches = answerWords.filter(aw => optWords.some(ow => ow.includes(aw) || aw.includes(ow)));
     return { option: opt, score: matches.length };
   });
@@ -441,7 +455,7 @@ function fuzzyMatch(answer, options) {
  * @returns {Date|null} Parsed date or null
  */
 function parseDateFromText(text) {
-  if (!text) return null;
+  if (!text || typeof text !== 'string') return null;
 
   const textLower = text.toLowerCase().trim();
 
@@ -566,13 +580,19 @@ function parseDateFromText(text) {
  * @param {Date|string} dateValue - Date object or string to fill
  */
 function fillDatepicker(element, dateValue) {
+  // Validate element
+  if (!element) {
+    console.warn('[Datepicker] Invalid element');
+    return false;
+  }
+
   let date = dateValue;
 
   if (typeof dateValue === 'string') {
     date = parseDateFromText(dateValue);
   }
 
-  if (!date || !(date instanceof Date) || isNaN(date)) {
+  if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
     console.warn('[Datepicker] Invalid date:', dateValue);
     return false;
   }
@@ -611,6 +631,12 @@ async function fillSelectize(selectElement, value, options) {
   try {
     console.log(`[Selectize] Attempting to fill with value: "${value}"`);
 
+    // Validate inputs
+    if (!selectElement || !value) {
+      console.warn('[Selectize] Invalid selectElement or value');
+      return false;
+    }
+
     // Find the selectize container
     const selectizeContainer = selectElement.parentElement?.querySelector('.selectize-control');
     if (!selectizeContainer) {
@@ -640,8 +666,8 @@ async function fillSelectize(selectElement, value, options) {
     const optionElements = Array.from(dropdown.querySelectorAll('.option'));
     console.log(`[Selectize] Found ${optionElements.length} options`);
 
-    // Fuzzy match value to options
-    const optionTexts = optionElements.map(opt => opt.textContent.trim());
+    // Fuzzy match value to options with validation
+    const optionTexts = optionElements.map(opt => opt && opt.textContent ? opt.textContent.trim() : '').filter(Boolean);
     const matchedText = fuzzyMatch(value, optionTexts);
 
     if (!matchedText) {
@@ -651,8 +677,8 @@ async function fillSelectize(selectElement, value, options) {
       return false;
     }
 
-    // Find and click the matched option
-    const matchedOption = optionElements.find(opt => opt.textContent.trim() === matchedText);
+    // Find and click the matched option with validation
+    const matchedOption = optionElements.find(opt => opt && opt.textContent && opt.textContent.trim() === matchedText);
     if (matchedOption) {
       console.log(`[Selectize] Clicking option: "${matchedText}"`);
       matchedOption.click();
@@ -684,6 +710,15 @@ async function fillSelectize(selectElement, value, options) {
  */
 async function fillCustomDropdown(element, value) {
   try {
+    // Validate inputs
+    if (!element || !value) {
+      console.warn('[Custom Dropdown] Invalid element or value');
+      return false;
+    }
+
+    // Ensure value is a string
+    const valueStr = typeof value === 'string' ? value : String(value);
+
     // IMPORTANT: First, close any previously opened dropdowns to avoid confusion
     const openDropdowns = document.querySelectorAll('[role="listbox"]:not([hidden]), [role="menu"]:not([hidden])');
     if (openDropdowns.length > 0) {
@@ -796,8 +831,11 @@ async function fillCustomDropdown(element, value) {
     const seenTexts = new Set();
     const options = [];
     for (const opt of optionElements) {
+      // Validate option element has textContent
+      if (!opt || !opt.textContent) continue;
+
       const text = opt.textContent.trim();
-      if (!seenTexts.has(text)) {
+      if (text && !seenTexts.has(text)) {
         seenTexts.add(text);
         options.push({ element: opt, text: text });
       }
@@ -806,26 +844,29 @@ async function fillCustomDropdown(element, value) {
     console.log(`[Custom Dropdown] Listbox contains ${options.length} unique options (${optionElements.length} total). First 5:`, options.slice(0, 5).map(o => o.text));
 
     // Fuzzy match value to options
-    const optionTexts = options.map(o => o.text);
-    const matchedText = fuzzyMatch(value, optionTexts);
+    const optionTexts = options.map(o => o.text).filter(Boolean);
+    const matchedText = fuzzyMatch(valueStr, optionTexts);
 
     if (!matchedText) {
-      console.warn(`[Custom Dropdown] ✗ No match for "${value}" in ${options.length} options for "${elementLabel}"`);
+      console.warn(`[Custom Dropdown] ✗ No match for "${valueStr}" in ${options.length} options for "${elementLabel}"`);
       console.warn(`[Custom Dropdown] Available options:`, optionTexts);
       // Close dropdown
       element.click();
       return false;
     }
 
-    // Find and click the matched option
-    const matchedOption = options.find(o => o.text === matchedText);
-    if (matchedOption) {
+    // Find and click the matched option with validation
+    const matchedOption = options.find(o => o && o.text === matchedText);
+    if (matchedOption && matchedOption.element) {
       matchedOption.element.click();
       console.log(`[Custom Dropdown] ✓ Selected "${matchedText}" for "${elementLabel}"`);
 
       // Wait for dropdown to close
       await new Promise(resolve => setTimeout(resolve, 200));
       return true;
+    } else {
+      console.warn(`[Custom Dropdown] ✗ Matched option element not found for "${matchedText}"`);
+      return false;
     }
 
     return false;
@@ -1049,10 +1090,12 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
           // Handle different field types
           if (metadata.type === 'select') {
-            const bestMatchText = fuzzyMatch(answer, metadata.options);
-            console.log(`[Gemini Filler] fuzzyMatch("${answer}") -> "${bestMatchText}" from ${metadata.options?.length || 0} options`);
+            // Validate options array before using
+            const validOptions = Array.isArray(metadata.options) ? metadata.options.filter(opt => typeof opt === 'string') : [];
+            const bestMatchText = fuzzyMatch(answer, validOptions);
+            console.log(`[Gemini Filler] fuzzyMatch("${answer}") -> "${bestMatchText}" from ${validOptions.length} options`);
             if (bestMatchText) {
-              const bestMatchOption = Array.from(element.options).find(o => o.text === bestMatchText);
+              const bestMatchOption = Array.from(element.options).find(o => o && o.text === bestMatchText);
               if (bestMatchOption) {
                 const oldValue = element.value;
                 element.value = bestMatchOption.value;
@@ -1072,8 +1115,11 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 await new Promise(resolve => setTimeout(resolve, 100));
                 console.log(`[Gemini Filler] SELECT: dispatched input+change events, current value="${element.value}", selectedIndex=${element.selectedIndex}`);
 
-                // Double-check: read selected option text
-                const currentSelectedOption = element.options[element.selectedIndex];
+                // Double-check: read selected option text with bounds checking
+                let currentSelectedOption = null;
+                if (element.selectedIndex >= 0 && element.selectedIndex < element.options.length) {
+                  currentSelectedOption = element.options[element.selectedIndex];
+                }
                 console.log(`[Gemini Filler] SELECT: currently selected option text="${currentSelectedOption?.text}", visible in UI=${element.offsetParent !== null}`);
 
                 aChangeWasMade = true;
@@ -1431,9 +1477,11 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       try {
         // Handle different field types
         if (fieldMetadata.type === 'select') {
-          const bestMatchText = fuzzyMatch(answer, optionsText);
+          // Validate options before using
+          const validOptions = Array.isArray(optionsText) ? optionsText.filter(opt => typeof opt === 'string') : [];
+          const bestMatchText = fuzzyMatch(answer, validOptions);
           if (bestMatchText) {
-            const bestMatchOption = Array.from(element.options).find(o => o.text === bestMatchText);
+            const bestMatchOption = Array.from(element.options).find(o => o && o.text === bestMatchText);
             if (bestMatchOption) {
               element.value = bestMatchOption.value;
               await new Promise(resolve => setTimeout(resolve, 200));
@@ -1787,9 +1835,12 @@ function createSummaryModal(missingFields, suggestions) {
 }
 
 function findBestMatch(answer, options) {
-  if (!options || options.length === 0) {
+  if (!answer || !options || options.length === 0) {
     return null;
   }
+
+  // Ensure answer is a string
+  const answerStr = typeof answer === 'string' ? answer : String(answer);
 
   // Polish to English country name mapping
   const countryTranslations = {
@@ -1814,17 +1865,20 @@ function findBestMatch(answer, options) {
   };
 
   // Try to translate Polish country names to English
-  const lowerAnswer = answer.toLowerCase().trim();
-  const translatedAnswer = countryTranslations[lowerAnswer] || answer;
+  const lowerAnswer = answerStr.toLowerCase().trim();
+  const translatedAnswer = countryTranslations[lowerAnswer] || answerStr;
   const wasTranslated = translatedAnswer !== answer;
 
   // Normalize answer by removing special chars for better matching
   const normalizedAnswer = translatedAnswer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
-  const answerWords = normalizedAnswer.split(/\s+/).filter(w => w.length > 0);
+  const answerWords = normalizedAnswer.split(/\s+/).filter(w => w && w.length > 0);
 
   // PASS 1: Look for exact match (highest priority)
   // Try both translated and original if translation happened
   for (const optionText of options) {
+    // Skip if optionText is not a string
+    if (typeof optionText !== 'string') continue;
+
     if (optionText.toLowerCase() === translatedAnswer.toLowerCase()) {
       return optionText;
     }
@@ -1837,6 +1891,9 @@ function findBestMatch(answer, options) {
   // PASS 2: Look for substring match (second priority)
   let substringMatch = null;
   for (const optionText of options) {
+    // Skip if optionText is not a string
+    if (typeof optionText !== 'string') continue;
+
     const lowerOption = optionText.toLowerCase();
     const lowerTranslatedAnswer = translatedAnswer.toLowerCase();
 
@@ -1868,8 +1925,11 @@ function findBestMatch(answer, options) {
   const originalWords = wasTranslated ? originalNormalized.split(/\s+/).filter(w => w.length > 0) : null;
 
   for (const optionText of options) {
+    // Skip if optionText is not a string
+    if (typeof optionText !== 'string') continue;
+
     const normalizedOption = optionText.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
-    const optionWords = normalizedOption.split(/\s+/).filter(w => w.length > 0);
+    const optionWords = normalizedOption.split(/\s+/).filter(w => w && w.length > 0);
 
     // Count matching words with translated answer
     let score = answerWords.filter(word => optionWords.includes(word)).length;
@@ -1890,11 +1950,16 @@ function findBestMatch(answer, options) {
 }
 
 function getQuestionForInput(input) {
+  // Validate input element
+  if (!input) {
+    return null;
+  }
+
   let questionText = null;
   let matchStrategy = null;
 
   // 1. Check for a wrapping label
-  if (input.parentElement.tagName === 'LABEL') {
+  if (input.parentElement && input.parentElement.tagName === 'LABEL') {
     questionText = input.parentElement.textContent.trim();
     matchStrategy = '1:wrapping-label';
   }

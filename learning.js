@@ -411,10 +411,13 @@ async function editAnswer(questionHash, fieldElement, feedbackContainer) {
     // Get current value from field
     let currentValue = '';
     if (fieldElement.tagName === 'SELECT') {
-      const selectedOption = fieldElement.options[fieldElement.selectedIndex];
-      currentValue = selectedOption ? selectedOption.text : '';
+      // Safe array access with bounds checking
+      if (fieldElement.selectedIndex >= 0 && fieldElement.selectedIndex < fieldElement.options.length) {
+        const selectedOption = fieldElement.options[fieldElement.selectedIndex];
+        currentValue = selectedOption ? selectedOption.text : '';
+      }
     } else if (fieldElement.tagName === 'TEXTAREA' || fieldElement.type === 'text' || fieldElement.type === 'email' || fieldElement.type === 'tel') {
-      currentValue = fieldElement.value;
+      currentValue = fieldElement.value || '';
     } else if (fieldElement.getAttribute('role') === 'radiogroup') {
       const selectedRadio = fieldElement.querySelector('button[role="radio"][aria-checked="true"]');
       if (selectedRadio) {
