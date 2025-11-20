@@ -109,6 +109,7 @@ async function getLearnedQuestions() {
     const responseHandler = (event) => {
       if (event.detail.requestId === requestId) {
         console.log('[Learning] 📥 Received storageGet response:', requestId, 'questions:', event.detail.data?.length || 0);
+        clearTimeout(timeoutId);  // Clear timeout on success
         document.removeEventListener('learning:storageGetResponse', responseHandler);
         resolve(event.detail.data || []);
       }
@@ -117,7 +118,7 @@ async function getLearnedQuestions() {
     document.addEventListener('learning:storageGetResponse', responseHandler);
 
     // Timeout after 5 seconds
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       document.removeEventListener('learning:storageGetResponse', responseHandler);
       console.warn('[Learning] ❌ Storage get timeout for requestId:', requestId);
       resolve([]);
@@ -152,6 +153,7 @@ async function saveLearnedQuestions(questions) {
     const responseHandler = (event) => {
       if (event.detail.requestId === requestId) {
         console.log('[Learning] 📥 Received storageSet response:', requestId, 'success:', event.detail.success);
+        clearTimeout(timeoutId);  // Clear timeout on success
         document.removeEventListener('learning:storageSetResponse', responseHandler);
         if (event.detail.success) {
           resolve();
@@ -164,7 +166,7 @@ async function saveLearnedQuestions(questions) {
     document.addEventListener('learning:storageSetResponse', responseHandler);
 
     // Timeout after 5 seconds
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       document.removeEventListener('learning:storageSetResponse', responseHandler);
       console.warn('[Learning] ❌ Storage set timeout for requestId:', requestId);
       reject(new Error('Storage set timeout'));

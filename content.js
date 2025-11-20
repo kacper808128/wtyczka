@@ -28,6 +28,7 @@ async function captureQuestionBridge(element, answer) {
 
     const responseHandler = (event) => {
       if (event.detail.requestId === requestId) {
+        clearTimeout(timeoutId);  // Clear timeout on success
         document.removeEventListener('learning:captureQuestionResponse', responseHandler);
         resolve(event.detail.hash);
       }
@@ -36,7 +37,7 @@ async function captureQuestionBridge(element, answer) {
     document.addEventListener('learning:captureQuestionResponse', responseHandler);
 
     // Timeout after 5 seconds
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       document.removeEventListener('learning:captureQuestionResponse', responseHandler);
       console.warn('[Learning Bridge] captureQuestion timeout');
       resolve(null);
@@ -58,6 +59,7 @@ async function getSuggestionForFieldBridge(element) {
 
     const responseHandler = (event) => {
       if (event.detail.requestId === requestId) {
+        clearTimeout(timeoutId);  // Clear timeout on success
         document.removeEventListener('learning:getSuggestionResponse', responseHandler);
         resolve(event.detail.suggestion);
       }
@@ -66,7 +68,7 @@ async function getSuggestionForFieldBridge(element) {
     document.addEventListener('learning:getSuggestionResponse', responseHandler);
 
     // Timeout after 5 seconds
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       document.removeEventListener('learning:getSuggestionResponse', responseHandler);
       console.warn('[Learning Bridge] getSuggestion timeout');
       resolve(null);
