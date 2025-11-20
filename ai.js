@@ -103,11 +103,41 @@ async function getBatchAIResponse(questions, userData) {
     return result;
   }
 
+  // Check if CV data should be used
+  const settings = await new Promise(resolve => {
+    chrome.storage.local.get(['useCvData', 'cvAnalyzedData'], resolve);
+  });
+
+  const useCvData = settings.useCvData || false;
+  const cvData = settings.cvAnalyzedData;
+
+  // Build context data string
+  let contextData = `User data (contains information in both Polish and English):
+${JSON.stringify(userData, null, 2)}`;
+
+  // Add CV data if enabled and available
+  if (useCvData && cvData) {
+    console.log('[Gemini Filler] Using CV data for form filling');
+
+    const yearsOfExperience = calculateYearsOfExperience(cvData.experience);
+
+    contextData += `
+
+CV Data (additional information extracted from user's resume):
+- Years of experience: ${yearsOfExperience} years
+- Latest position: ${cvData.experience?.[0]?.role || 'N/A'} at ${cvData.experience?.[0]?.company || 'N/A'}
+- Education: ${cvData.education?.map(e => `${e.degree} in ${e.field} from ${e.institution}`).join(', ') || 'N/A'}
+- Skills: ${cvData.skills?.join(', ') || 'N/A'}
+- Languages: ${cvData.languages?.map(l => `${l.language} (${l.level})`).join(', ') || 'N/A'}
+- Full experience history: ${JSON.stringify(cvData.experience || [])}
+- Projects: ${JSON.stringify(cvData.projects || [])}
+- Certifications: ${cvData.certifications?.join(', ') || 'N/A'}`;
+  }
+
   // Build batch prompt
   let prompt = `You are an expert recruitment form filler. Your task is to match each question to the best answer from user data, or select the best option from provided choices.
 
-User data (contains information in both Polish and English):
-${JSON.stringify(userData, null, 2)}
+${contextData}
 
 MATCHING GUIDELINES:
 - Questions may be in Polish or English
@@ -502,4 +532,253 @@ function getMockAIResponse(question, userData, options) {
   }
 
   return answer;
+}
+
+// ==================== CV Analysis Functions ====================
+
+/**
+ * Analyze CV file and extract structured data using AI
+ * @param {Object} cvFile - CV file object with dataUrl and type
+ * @returns {Promise<Object>} Structured CV data
+ */
+async function analyzeCVWithAI(cvFile) {
+  try {
+    console.log('[CV Analyzer] Starting CV analysis...');
+
+    const apiKey = await getApiKey();
+    if (!apiKey) {
+      throw new Error('Brak klucza API. Skonfiguruj klucz w ustawieniach.');
+    }
+
+    // Extract text from CV
+    let cvText = '';
+
+    if (cvFile.type === 'application/pdf') {
+      // For PDF, we'll send the data URL directly to Gemini Vision API
+      // Gemini can process PDF directly
+      cvText = await extractTextFromPDF(cvFile.dataUrl, apiKey);
+    } else {
+      // For other formats, try to extract text (simplified)
+      throw new Error('Obecnie obsługiwane są tylko pliki PDF. Wkrótce dodamy wsparcie dla innych formatów.');
+    }
+
+    console.log('[CV Analyzer] Extracted text length:', cvText.length);
+
+    // Structure data using AI
+    const structuredData = await structureCVDataWithAI(cvText, apiKey);
+
+    // Add metadata
+    structuredData.analyzedAt = Date.now();
+    structuredData.sourceFile = cvFile.name;
+
+    // Save to storage
+    await new Promise((resolve, reject) => {
+      chrome.storage.local.set({ cvAnalyzedData: structuredData }, () => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    console.log('[CV Analyzer] Analysis complete, data saved');
+    return structuredData;
+
+  } catch (error) {
+    console.error('[CV Analyzer] Error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Extract text from PDF using Gemini Vision API
+ * @param {string} pdfDataUrl - PDF file as data URL
+ * @param {string} apiKey - Gemini API key
+ * @returns {Promise<string>} Extracted text
+ */
+async function extractTextFromPDF(pdfDataUrl, apiKey) {
+  try {
+    const base64Data = pdfDataUrl.split(',')[1];
+
+    const API_URL = `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            {
+              inline_data: {
+                mime_type: 'application/pdf',
+                data: base64Data
+              }
+            },
+            {
+              text: 'Extract all text content from this CV/resume document. Return only the raw text without any formatting or additional commentary.'
+            }
+          ]
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`Gemini API error: ${errorData.error?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    const extractedText = data.candidates[0]?.content?.parts[0]?.text || '';
+
+    if (!extractedText) {
+      throw new Error('Nie udało się wyciągnąć tekstu z PDF');
+    }
+
+    return extractedText;
+
+  } catch (error) {
+    console.error('[CV Analyzer] PDF extraction error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Structure CV data using AI
+ * @param {string} cvText - Raw CV text
+ * @param {string} apiKey - Gemini API key
+ * @returns {Promise<Object>} Structured CV data
+ */
+async function structureCVDataWithAI(cvText, apiKey) {
+  const prompt = `Przeanalizuj poniższe CV i wyciągnij WSZYSTKIE dane w formacie JSON. Zwróć TYLKO JSON bez żadnego dodatkowego tekstu.
+
+Struktura JSON powinna zawierać:
+{
+  "personal": {
+    "firstName": "",
+    "lastName": "",
+    "email": "",
+    "phone": "",
+    "city": "",
+    "country": "",
+    "linkedin": "",
+    "github": "",
+    "website": ""
+  },
+  "experience": [
+    {
+      "company": "",
+      "role": "",
+      "startDate": "YYYY-MM",
+      "endDate": "YYYY-MM lub 'present'",
+      "description": "",
+      "achievements": []
+    }
+  ],
+  "education": [
+    {
+      "degree": "Licencjat/Magister/Inżynier/etc",
+      "institution": "",
+      "field": "",
+      "startDate": "YYYY-MM",
+      "endDate": "YYYY-MM"
+    }
+  ],
+  "skills": [],
+  "languages": [
+    {
+      "language": "Angielski",
+      "level": "C1/B2/etc"
+    }
+  ],
+  "projects": [
+    {
+      "name": "",
+      "description": "",
+      "technologies": []
+    }
+  ],
+  "certifications": []
+}
+
+CV:
+${cvText}
+
+WAŻNE: Zwróć TYLKO JSON, bez żadnego dodatkowego tekstu, komentarzy ani formatowania markdown.`;
+
+  const API_URL = `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+  try {
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`Gemini API error: ${errorData.error?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    let jsonText = data.candidates[0]?.content?.parts[0]?.text || '';
+
+    if (!jsonText) {
+      throw new Error('Brak odpowiedzi od AI');
+    }
+
+    // Clean up the response - remove markdown code blocks if present
+    jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+    // Parse JSON
+    const structuredData = JSON.parse(jsonText);
+
+    console.log('[CV Analyzer] Structured data:', structuredData);
+    return structuredData;
+
+  } catch (error) {
+    console.error('[CV Analyzer] Structuring error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Calculate years of experience from experience array
+ * @param {Array} experiences - Array of experience objects
+ * @returns {number} Total years of experience
+ */
+function calculateYearsOfExperience(experiences) {
+  if (!experiences || !Array.isArray(experiences) || experiences.length === 0) {
+    return 0;
+  }
+
+  let totalMonths = 0;
+
+  experiences.forEach(exp => {
+    try {
+      const start = new Date(exp.startDate);
+      const end = exp.endDate === 'present' || exp.endDate === 'obecnie' ?
+        new Date() :
+        new Date(exp.endDate);
+
+      if (!isNaN(start) && !isNaN(end)) {
+        const months = (end - start) / (1000 * 60 * 60 * 24 * 30.44); // Average days per month
+        totalMonths += Math.max(0, months);
+      }
+    } catch (error) {
+      console.warn('[CV Analyzer] Error calculating experience duration:', error);
+    }
+  });
+
+  return Math.floor(totalMonths / 12);
 }
