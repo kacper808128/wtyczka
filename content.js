@@ -842,6 +842,44 @@ async function fillCustomDropdown(element, userData, question) {
       return false;
     }
 
+    // Check if dropdown is paginated (lazy loading)
+    const isPaginated = element.closest('.paginatedPicklistContainer') !== null ||
+                       listbox.classList.contains('paginated') ||
+                       listbox.querySelector('.virtualized');
+
+    if (isPaginated) {
+      console.log(`[Custom Dropdown] Detected paginated dropdown - scrolling to load all options`);
+
+      // Scroll to load all options
+      let previousCount = 0;
+      let currentCount = 0;
+      let attempts = 0;
+      const maxAttempts = 20; // Prevent infinite loop
+
+      do {
+        previousCount = currentCount;
+
+        // Find scrollable container (might be listbox itself or a child)
+        const scrollContainer = listbox.querySelector('[role="listbox"]') ||
+                              listbox.querySelector('.scrollable') ||
+                              listbox;
+
+        // Scroll to bottom
+        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+
+        // Wait for new options to load
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        // Count current options
+        currentCount = listbox.querySelectorAll('[role="option"], [role="menuitem"]').length;
+        attempts++;
+
+        console.log(`[Custom Dropdown] Scroll attempt ${attempts}: ${currentCount} options`);
+      } while (currentCount > previousCount && attempts < maxAttempts);
+
+      console.log(`[Custom Dropdown] Finished loading: ${currentCount} total options after ${attempts} attempts`);
+    }
+
     // Find all options
     const optionElements = Array.from(listbox.querySelectorAll('[role="option"], [role="menuitem"]'));
 
