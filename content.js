@@ -639,18 +639,27 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         }
 
         // Capture the question and answer for learning
+        console.log(`[DEBUG] Checking capture conditions: captureQuestion=${typeof captureQuestion}, answer=${!!answer}, answerSource=${answerSource}`);
         if (typeof captureQuestion === 'function' && answer && answerSource === 'ai') {
           try {
+            console.log(`[DEBUG] Calling captureQuestion for "${question}"...`);
             // captureQuestion now returns questionHash
             const capturedHash = await captureQuestion(element, answer);
+            console.log(`[DEBUG] captureQuestion returned: ${capturedHash}, existing questionHash: ${questionHash}`);
             if (capturedHash && !questionHash) {
               questionHash = capturedHash;
               console.log(`%c[SYSTEM UCZENIA] 💾 Zapisano pytanie: "${question}" → "${answer}"`, 'color: purple; font-weight: bold;');
               console.log(`%c   Kliknij 👍/👎 obok pola żeby zwiększyć pewność odpowiedzi!`, 'color: purple;');
+            } else if (!capturedHash) {
+              console.log(`[DEBUG] captureQuestion returned null/undefined - not saving to learning system`);
+            } else if (questionHash) {
+              console.log(`[DEBUG] questionHash already set - not overwriting`);
             }
           } catch (err) {
             console.warn('[Gemini Filler] Error capturing question for learning:', err);
           }
+        } else {
+          console.log(`[DEBUG] Skipping capture: not an AI answer or conditions not met`);
         }
 
         // Add feedback button for learned and AI answers (not for mock data)
