@@ -181,6 +181,57 @@
   background: #FFEBEE;
 }
 
+.feedback-edit {
+  border-color: #2196F3;
+  color: #2196F3;
+}
+
+.feedback-edit:hover {
+  background: #E3F2FD;
+}
+
+.feedback-edit-container {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.feedback-edit-input {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid #2196F3;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
+.feedback-edit-input:focus {
+  border-color: #1976D2;
+  box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1);
+}
+
+.feedback-save {
+  border-color: #4CAF50;
+  color: #4CAF50;
+  white-space: nowrap;
+}
+
+.feedback-save:hover {
+  background: #E8F5E9;
+}
+
+.feedback-cancel {
+  border-color: #F44336;
+  color: #F44336;
+  white-space: nowrap;
+}
+
+.feedback-cancel:hover {
+  background: #FFEBEE;
+}
+
 /* Question cards in options page */
 .question-card {
   border: 1px solid #ddd;

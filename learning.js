@@ -395,6 +395,142 @@ async function recordFeedback(questionHash, feedbackType) {
 // ==================== UI Functions ====================
 
 /**
+ * Edit answer for a learned question
+ */
+async function editAnswer(questionHash, fieldElement, feedbackContainer) {
+  try {
+    // Get current answer
+    const questions = await getLearnedQuestions();
+    const question = questions.find(q => q.question_hash === questionHash);
+
+    if (!question) {
+      console.error('[Learning] Question not found:', questionHash);
+      return;
+    }
+
+    // Get current value from field
+    let currentValue = '';
+    if (fieldElement.tagName === 'SELECT') {
+      const selectedOption = fieldElement.options[fieldElement.selectedIndex];
+      currentValue = selectedOption ? selectedOption.text : '';
+    } else if (fieldElement.tagName === 'TEXTAREA' || fieldElement.type === 'text' || fieldElement.type === 'email' || fieldElement.type === 'tel') {
+      currentValue = fieldElement.value;
+    } else if (fieldElement.getAttribute('role') === 'radiogroup') {
+      const selectedRadio = fieldElement.querySelector('button[role="radio"][aria-checked="true"]');
+      if (selectedRadio) {
+        const label = document.querySelector(`label[for="${selectedRadio.id}"]`) || selectedRadio.closest('div')?.querySelector('label');
+        currentValue = label ? label.textContent.trim() : selectedRadio.getAttribute('aria-label') || '';
+      }
+    }
+
+    // Show input for editing
+    const label = feedbackContainer.querySelector('.feedback-label');
+    const yesBtn = feedbackContainer.querySelector('.feedback-yes');
+    const noBtn = feedbackContainer.querySelector('.feedback-no');
+    const editBtn = feedbackContainer.querySelector('.feedback-edit');
+
+    // Hide buttons and label
+    yesBtn.style.display = 'none';
+    noBtn.style.display = 'none';
+    editBtn.style.display = 'none';
+    label.style.display = 'none';
+
+    // Create input field
+    const editContainer = document.createElement('div');
+    editContainer.className = 'feedback-edit-container';
+    editContainer.innerHTML = `
+      <input type="text" class="feedback-edit-input" value="${currentValue.replace(/"/g, '&quot;')}" placeholder="Wpisz odpowiedź...">
+      <button class="feedback-btn feedback-save">💾 Zapisz</button>
+      <button class="feedback-btn feedback-cancel">❌ Anuluj</button>
+    `;
+    feedbackContainer.appendChild(editContainer);
+
+    const input = editContainer.querySelector('.feedback-edit-input');
+    const saveBtn = editContainer.querySelector('.feedback-save');
+    const cancelBtn = editContainer.querySelector('.feedback-cancel');
+
+    // Focus input and select text
+    input.focus();
+    input.select();
+
+    // Cancel handler
+    const cancel = () => {
+      editContainer.remove();
+      yesBtn.style.display = '';
+      noBtn.style.display = '';
+      editBtn.style.display = '';
+      label.style.display = '';
+    };
+
+    // Save handler
+    const save = async () => {
+      const newAnswer = input.value.trim();
+
+      if (!newAnswer) {
+        alert('Odpowiedź nie może być pusta');
+        return;
+      }
+
+      // Update in storage
+      const questions = await getLearnedQuestions();
+      const index = questions.findIndex(q => q.question_hash === questionHash);
+
+      if (index !== -1) {
+        questions[index].user_answer = newAnswer;
+        questions[index].confidence = 1.0; // 100% confidence for user-provided answer
+        questions[index].feedback_positive += 1; // Count as positive feedback
+        await saveLearnedQuestions(questions);
+        console.log('[Learning] Answer updated:', question.question_text, '→', newAnswer);
+
+        // Update field value in DOM
+        if (fieldElement.tagName === 'TEXTAREA' || fieldElement.type === 'text' || fieldElement.type === 'email' || fieldElement.type === 'tel') {
+          fieldElement.value = newAnswer;
+          // Trigger change event
+          const inputEvent = new Event('input', { bubbles: true });
+          const changeEvent = new Event('change', { bubbles: true });
+          fieldElement.dispatchEvent(inputEvent);
+          fieldElement.dispatchEvent(changeEvent);
+        }
+        // For SELECT and radiogroup, user would need to manually select - we just saved the learned value
+
+        // Show success message
+        editContainer.remove();
+        label.textContent = '✓ Odpowiedź zapisana!';
+        label.style.color = 'green';
+        label.style.display = '';
+
+        // Disable all buttons
+        yesBtn.disabled = true;
+        noBtn.disabled = true;
+        editBtn.disabled = true;
+        yesBtn.style.display = '';
+        noBtn.style.display = '';
+        editBtn.style.display = '';
+        yesBtn.style.opacity = '0.3';
+        noBtn.style.opacity = '0.3';
+        editBtn.style.opacity = '0.3';
+      }
+    };
+
+    // Event listeners
+    saveBtn.addEventListener('click', save);
+    cancelBtn.addEventListener('click', cancel);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        save();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancel();
+      }
+    });
+
+  } catch (error) {
+    console.error('[Learning] Error editing answer:', error);
+  }
+}
+
+/**
  * Show notification for new question
  */
 function showNewQuestionNotification(questionText) {
@@ -454,6 +590,9 @@ function addFeedbackButton(fieldElement, questionHash) {
       <button class="feedback-btn feedback-no" data-hash="${questionHash}" data-feedback="negative">
         👎 Nie
       </button>
+      <button class="feedback-btn feedback-edit" data-hash="${questionHash}">
+        ✏️ Edytuj
+      </button>
     `;
 
     // Set relative positioning for parent
@@ -464,8 +603,8 @@ function addFeedbackButton(fieldElement, questionHash) {
 
     parent.appendChild(feedbackContainer);
 
-    // Event listeners
-    feedbackContainer.querySelectorAll('.feedback-btn').forEach(btn => {
+    // Event listeners for feedback buttons
+    feedbackContainer.querySelectorAll('.feedback-yes, .feedback-no').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -477,11 +616,13 @@ function addFeedbackButton(fieldElement, questionHash) {
         // Show confirmation but keep buttons visible (disabled)
         const yesBtn = feedbackContainer.querySelector('.feedback-yes');
         const noBtn = feedbackContainer.querySelector('.feedback-no');
+        const editBtn = feedbackContainer.querySelector('.feedback-edit');
         const label = feedbackContainer.querySelector('.feedback-label');
 
-        // Disable both buttons
+        // Disable all buttons
         yesBtn.disabled = true;
         noBtn.disabled = true;
+        editBtn.disabled = true;
 
         // Update styling to show which was clicked
         if (feedback === 'positive') {
@@ -493,11 +634,22 @@ function addFeedbackButton(fieldElement, questionHash) {
           noBtn.style.fontWeight = 'bold';
           yesBtn.style.opacity = '0.3';
         }
+        editBtn.style.opacity = '0.3';
 
         // Update label to show confirmation
         label.textContent = '✓ Dziękujemy za feedback!';
         label.style.color = 'green';
       });
+    });
+
+    // Event listener for edit button
+    const editBtn = feedbackContainer.querySelector('.feedback-edit');
+    editBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const hash = e.target.dataset.hash;
+      await editAnswer(hash, fieldElement, feedbackContainer);
     });
   } catch (error) {
     console.error('[Learning] Error adding feedback button:', error);
