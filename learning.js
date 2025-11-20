@@ -104,9 +104,11 @@ let storageRequestCounter = 0;
 async function getLearnedQuestions() {
   return new Promise((resolve) => {
     const requestId = `storage_${Date.now()}_${storageRequestCounter++}`;
+    console.log('[Learning] 📤 Sending storageGet request:', requestId);
 
     const responseHandler = (event) => {
       if (event.detail.requestId === requestId) {
+        console.log('[Learning] 📥 Received storageGet response:', requestId, 'questions:', event.detail.data?.length || 0);
         document.removeEventListener('learning:storageGetResponse', responseHandler);
         resolve(event.detail.data || []);
       }
@@ -117,13 +119,14 @@ async function getLearnedQuestions() {
     // Timeout after 5 seconds
     setTimeout(() => {
       document.removeEventListener('learning:storageGetResponse', responseHandler);
-      console.warn('[Learning] Storage get timeout');
+      console.warn('[Learning] ❌ Storage get timeout for requestId:', requestId);
       resolve([]);
     }, 5000);
 
     document.dispatchEvent(new CustomEvent('learning:storageGet', {
       detail: { key: 'learnedQuestions', requestId }
     }));
+    console.log('[Learning] ✅ StorageGet event dispatched:', requestId);
   });
 }
 
@@ -144,9 +147,11 @@ async function saveLearnedQuestions(questions) {
     }
 
     const requestId = `storage_${Date.now()}_${storageRequestCounter++}`;
+    console.log('[Learning] 📤 Sending storageSet request:', requestId, 'questions count:', questions.length);
 
     const responseHandler = (event) => {
       if (event.detail.requestId === requestId) {
+        console.log('[Learning] 📥 Received storageSet response:', requestId, 'success:', event.detail.success);
         document.removeEventListener('learning:storageSetResponse', responseHandler);
         if (event.detail.success) {
           resolve();
@@ -161,13 +166,14 @@ async function saveLearnedQuestions(questions) {
     // Timeout after 5 seconds
     setTimeout(() => {
       document.removeEventListener('learning:storageSetResponse', responseHandler);
-      console.warn('[Learning] Storage set timeout');
+      console.warn('[Learning] ❌ Storage set timeout for requestId:', requestId);
       reject(new Error('Storage set timeout'));
     }, 5000);
 
     document.dispatchEvent(new CustomEvent('learning:storageSet', {
       detail: { key: 'learnedQuestions', value: questions, requestId }
     }));
+    console.log('[Learning] ✅ StorageSet event dispatched:', requestId);
   });
 }
 
