@@ -534,15 +534,51 @@ console.log('[Learning] Functions exported to window:', {
 // Listen for captureQuestion requests from content script
 document.addEventListener('learning:captureQuestion', async (event) => {
   try {
-    const { element, answer, requestId } = event.detail;
-    const hash = await captureQuestion(element, answer);
+    const { questionText, answer, fieldType, fieldName, fieldId, requestId } = event.detail;
+
+    // Create question data directly from passed data (no DOM element available)
+    if (!questionText || !answer || questionText === 'Unknown question') {
+      document.dispatchEvent(new CustomEvent('learning:captureQuestionResponse', {
+        detail: { hash: null, requestId }
+      }));
+      return;
+    }
+
+    const normalizedQuestion = normalizeQuestion(questionText);
+    const questionHash = generateHash(normalizedQuestion);
+    const existingQuestion = await findExistingQuestion(questionHash);
+
+    if (existingQuestion) {
+      await updateQuestionStats(existingQuestion, answer);
+    } else {
+      await saveNewQuestion({
+        question_hash: questionHash,
+        question_text: questionText,
+        variations: [normalizedQuestion],
+        user_answer: answer,
+        frequency: 1,
+        last_used: new Date().toISOString(),
+        field_type: fieldType || 'text',
+        confidence: 0.5,
+        context: {
+          field_name: fieldName,
+          field_id: fieldId,
+          form_url: window.location.href
+        },
+        created_at: new Date().toISOString(),
+        feedback_positive: 0,
+        feedback_negative: 0
+      });
+      showNewQuestionNotification(questionText);
+    }
+
     document.dispatchEvent(new CustomEvent('learning:captureQuestionResponse', {
-      detail: { hash, requestId }
+      detail: { hash: questionHash, requestId }
     }));
   } catch (error) {
     console.error('[Learning] Error in captureQuestion event handler:', error);
     document.dispatchEvent(new CustomEvent('learning:captureQuestionResponse', {
-      detail: { hash: null, error: error.message, requestId: event.detail.requestId }
+      detail: { hash: null, error: error.message, requestId: event.detail?.requestId }
     }));
   }
 });
@@ -550,15 +586,60 @@ document.addEventListener('learning:captureQuestion', async (event) => {
 // Listen for getSuggestion requests from content script
 document.addEventListener('learning:getSuggestion', async (event) => {
   try {
-    const { element, requestId } = event.detail;
-    const suggestion = await getSuggestionForField(element);
+    const { questionText, requestId } = event.detail;
+
+    if (!questionText || questionText === 'Unknown question') {
+      document.dispatchEvent(new CustomEvent('learning:getSuggestionResponse', {
+        detail: { suggestion: null, requestId }
+      }));
+      return;
+    }
+
+    const normalizedQuestion = normalizeQuestion(questionText);
+    const questionHash = generateHash(normalizedQuestion);
+
+    // Try exact match first
+    const existingQuestion = await findExistingQuestion(questionHash);
+    if (existingQuestion && existingQuestion.confidence > 0.7) {
+      document.dispatchEvent(new CustomEvent('learning:getSuggestionResponse', {
+        detail: {
+          suggestion: {
+            answer: existingQuestion.user_answer,
+            confidence: existingQuestion.confidence,
+            source: 'learned',
+            questionHash: existingQuestion.question_hash
+          },
+          requestId
+        }
+      }));
+      return;
+    }
+
+    // Try fuzzy matching
+    const similarQuestion = await findSimilarQuestion(normalizedQuestion);
+    if (similarQuestion && similarQuestion.confidence > 0.6) {
+      document.dispatchEvent(new CustomEvent('learning:getSuggestionResponse', {
+        detail: {
+          suggestion: {
+            answer: similarQuestion.user_answer,
+            confidence: similarQuestion.confidence * 0.8,
+            source: 'similar',
+            questionHash: similarQuestion.question_hash
+          },
+          requestId
+        }
+      }));
+      return;
+    }
+
+    // No suggestion found
     document.dispatchEvent(new CustomEvent('learning:getSuggestionResponse', {
-      detail: { suggestion, requestId }
+      detail: { suggestion: null, requestId }
     }));
   } catch (error) {
     console.error('[Learning] Error in getSuggestion event handler:', error);
     document.dispatchEvent(new CustomEvent('learning:getSuggestionResponse', {
-      detail: { suggestion: null, error: error.message, requestId: event.detail.requestId }
+      detail: { suggestion: null, error: error.message, requestId: event.detail?.requestId }
     }));
   }
 });
@@ -566,8 +647,14 @@ document.addEventListener('learning:getSuggestion', async (event) => {
 // Listen for addFeedbackButton requests from content script
 document.addEventListener('learning:addFeedbackButton', (event) => {
   try {
-    const { element, questionHash } = event.detail;
-    addFeedbackButton(element, questionHash);
+    const { elementId, questionHash } = event.detail;
+    // Find element by the data attribute we added
+    const element = document.querySelector(`[data-learning-feedback-id="${elementId}"]`);
+    if (element) {
+      addFeedbackButton(element, questionHash);
+    } else {
+      console.warn('[Learning] Could not find element for feedback button:', elementId);
+    }
   } catch (error) {
     console.error('[Learning] Error in addFeedbackButton event handler:', error);
   }
