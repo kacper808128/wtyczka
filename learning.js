@@ -440,8 +440,8 @@ async function editAnswer(questionHash, fieldElement, feedbackContainer) {
     editContainer.className = 'feedback-edit-container';
     editContainer.innerHTML = `
       <input type="text" class="feedback-edit-input" value="${currentValue.replace(/"/g, '&quot;')}" placeholder="Wpisz odpowiedź...">
-      <button class="feedback-btn feedback-save">💾 Zapisz</button>
-      <button class="feedback-btn feedback-cancel">❌ Anuluj</button>
+      <button type="button" class="feedback-btn feedback-save">💾 Zapisz</button>
+      <button type="button" class="feedback-btn feedback-cancel">❌ Anuluj</button>
     `;
     feedbackContainer.appendChild(editContainer);
 
@@ -454,7 +454,13 @@ async function editAnswer(questionHash, fieldElement, feedbackContainer) {
     input.select();
 
     // Cancel handler
-    const cancel = () => {
+    const cancel = (event) => {
+      // CRITICAL: Prevent form submission when clicking cancel button
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+
       editContainer.remove();
       yesBtn.style.display = '';
       noBtn.style.display = '';
@@ -463,7 +469,13 @@ async function editAnswer(questionHash, fieldElement, feedbackContainer) {
     };
 
     // Save handler
-    const save = async () => {
+    const save = async (event) => {
+      // CRITICAL: Prevent form submission when clicking save button
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+
       const newAnswer = input.value.trim();
 
       if (!newAnswer) {
@@ -584,13 +596,13 @@ function addFeedbackButton(fieldElement, questionHash) {
     feedbackContainer.className = 'autofill-feedback';
     feedbackContainer.innerHTML = `
       <span class="feedback-label">Czy to poprawna odpowiedź?</span>
-      <button class="feedback-btn feedback-yes" data-hash="${questionHash}" data-feedback="positive">
+      <button type="button" class="feedback-btn feedback-yes" data-hash="${questionHash}" data-feedback="positive">
         👍 Tak
       </button>
-      <button class="feedback-btn feedback-no" data-hash="${questionHash}" data-feedback="negative">
+      <button type="button" class="feedback-btn feedback-no" data-hash="${questionHash}" data-feedback="negative">
         👎 Nie
       </button>
-      <button class="feedback-btn feedback-edit" data-hash="${questionHash}">
+      <button type="button" class="feedback-btn feedback-edit" data-hash="${questionHash}">
         ✏️ Edytuj
       </button>
     `;
