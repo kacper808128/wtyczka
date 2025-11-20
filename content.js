@@ -815,7 +815,7 @@ async function fillCustomDropdown(element, userData, question) {
     }
 
     if (!listbox) {
-      console.warn(`[Custom Dropdown] ✗ Could not find opened listbox for "${elementLabel}"`);
+      console.warn(`[Custom Dropdown] ✗ Could not find opened listbox for "${question}"`);
       // Try to close the dropdown we just opened
       element.click();
       return false;
