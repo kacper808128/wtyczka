@@ -394,6 +394,64 @@ function toggleApiKeyVisibility() {
 
 // --- Learned Questions Management ---
 
+// Direct storage access (options.html is extension page, not page context)
+async function getLearnedQuestions() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['learnedQuestions'], (result) => {
+      resolve(result.learnedQuestions || []);
+    });
+  });
+}
+
+async function saveLearnedQuestions(questions) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ learnedQuestions: questions }, resolve);
+  });
+}
+
+async function exportLearnedQuestions() {
+  const questions = await getLearnedQuestions();
+  const dataStr = JSON.stringify(questions, null, 2);
+  const blob = new Blob([dataStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `learned-questions-${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+
+async function importLearnedQuestions(jsonData) {
+  try {
+    const importedQuestions = JSON.parse(jsonData);
+    if (!Array.isArray(importedQuestions)) {
+      return { success: false, error: 'Invalid format' };
+    }
+
+    const existingQuestions = await getLearnedQuestions();
+    const existingHashes = new Set(existingQuestions.map(q => q.question_hash));
+
+    let imported = 0;
+    for (const q of importedQuestions) {
+      if (!existingHashes.has(q.question_hash)) {
+        existingQuestions.push(q);
+        imported++;
+      }
+    }
+
+    await saveLearnedQuestions(existingQuestions);
+    return { success: true, imported };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+async function clearAllLearnedQuestions() {
+  await saveLearnedQuestions([]);
+}
+
 async function displayLearnedQuestions(searchTerm = '') {
   const questionsContainer = document.getElementById('questions-list');
   const questions = await getLearnedQuestions();

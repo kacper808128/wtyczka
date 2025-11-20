@@ -299,8 +299,14 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             continue;  // Don't add to processedElements - let second pass retry with full AI
           }
         } else {
-          // Answer came from batch AI (not mock fallback)
-          answerSource = 'ai';
+          // Answer came from batch AI - check if it's actually from userData
+          const isFromUserData = Object.values(userData).some(val =>
+            val && val.toString().toLowerCase() === answer.toLowerCase()
+          );
+          answerSource = isFromUserData ? 'mock' : 'ai';
+          if (isFromUserData) {
+            console.log(`[Gemini Filler] Answer "${answer}" found in userData, marking as mock`);
+          }
         }
 
         try {
@@ -499,14 +505,16 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 filled = true;
                 console.log(`[Gemini Filler] Custom dropdown: successfully clicked option "${bestMatch}"`);
 
-                // Capture for learning and add feedback button
-                try {
-                  const capturedHash = await captureQuestionBridge(element, answer);
-                  if (capturedHash && answerSource === 'ai') {
-                    addFeedbackButtonBridge(element, capturedHash);
+                // Capture for learning and add feedback button (only for AI answers)
+                if (answerSource === 'ai') {
+                  try {
+                    const capturedHash = await captureQuestionBridge(element, answer);
+                    if (capturedHash) {
+                      addFeedbackButtonBridge(element, capturedHash);
+                    }
+                  } catch (err) {
+                    console.warn('[Gemini Filler] Error capturing custom dropdown question:', err);
                   }
-                } catch (err) {
-                  console.warn('[Gemini Filler] Error capturing custom dropdown question:', err);
                 }
               } else {
                 console.warn(`[Gemini Filler] Custom dropdown: matched text "${bestMatch}" but element not found`);
