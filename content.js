@@ -727,6 +727,15 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         continue;
       }
 
+      // Skip Selectize-generated inputs (they're created by Selectize.js and should be ignored)
+      if (element.tagName === 'INPUT' &&
+          (element.closest('.selectize-input') ||
+           element.closest('.selectize-control') ||
+           element.id.endsWith('-selectized'))) {
+        console.log(`[Gemini Filler] Skipping Selectize-generated input: ${element.id}`);
+        continue;
+      }
+
       const question = getQuestionForInput(element);
       if (!question) continue;
 
@@ -1157,6 +1166,14 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       // Handle checkboxes
       if (element.type === 'checkbox') {
         await handleCheckbox(element, userData);
+        continue;
+      }
+
+      // Skip Selectize-generated inputs (they're created by Selectize.js and should be ignored)
+      if (element.tagName === 'INPUT' &&
+          (element.closest('.selectize-input') ||
+           element.closest('.selectize-control') ||
+           element.id.endsWith('-selectized'))) {
         continue;
       }
 

@@ -561,7 +561,19 @@ function getMockAIResponse(question, userData, options) {
     answer = findUserDataValue(['address', 'adres']) || '';
   } else if (lowerQuestion.includes('country') || lowerQuestion.includes('kraj')) {
     answer = findUserDataValue(['country', 'kraj', 'państwo']) || '';
+  } else if ((lowerQuestion.includes('język') || lowerQuestion.includes('language')) &&
+             (lowerQuestion.includes('polski') || lowerQuestion.includes('polskiego') || lowerQuestion.includes('polish'))) {
+    // Specific: Polish language proficiency
+    answer = findUserDataValue(['język polski', 'polish', 'polski']) || 'C2'; // Default to native/C2
+  } else if ((lowerQuestion.includes('język') || lowerQuestion.includes('language')) &&
+             (lowerQuestion.includes('angielski') || lowerQuestion.includes('angielskiego') || lowerQuestion.includes('english'))) {
+    // Specific: English language proficiency
+    // Try to extract just English level from languages list
+    const allLanguages = findUserDataValue(['languages', 'language', 'języki', 'język', 'języki obce']) || '';
+    const englishMatch = allLanguages.match(/angielski\s*\(([^)]+)\)/i) || allLanguages.match(/english\s*\(([^)]+)\)/i);
+    answer = englishMatch ? englishMatch[1] : findUserDataValue(['angielski', 'english']) || '';
   } else if (lowerQuestion.includes('language') || lowerQuestion.includes('język')) {
+    // General: all languages
     answer = findUserDataValue(['languages', 'language', 'języki', 'język', 'języki obce']) || '';
   } else if (lowerQuestion.includes('skill') || lowerQuestion.includes('umiejętnoś')) {
     answer = findUserDataValue(['skills', 'skill', 'umiejętności', 'technologie']) || '';
