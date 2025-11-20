@@ -1586,12 +1586,17 @@ function showOverlay(text) {
 }
 
 function showSuccessOverlay() {
+  console.log('[Tracker] showSuccessOverlay called');
   const modal = document.getElementById('gemini-filler-modal');
+  console.log('[Tracker] Modal element:', modal);
   if (modal) {
     // Check if we're on a recruitment site
     const isRecruitmentSite = checkIfRecruitmentSite();
+    console.log('[Tracker] isRecruitmentSite:', isRecruitmentSite);
+    console.log('[Tracker] Current URL:', window.location.href);
 
     if (isRecruitmentSite) {
+      console.log('[Tracker] Showing recruitment site version with tracker prompt');
       modal.innerHTML = `
         <div class="checkmark">✓</div>
         <p>Gotowe!</p>
@@ -1647,11 +1652,14 @@ function showSuccessOverlay() {
         }
       }, 100);
     } else {
+      console.log('[Tracker] Showing regular version (not recruitment site)');
       modal.innerHTML = `
         <div class="checkmark">✓</div>
         <p>Gotowe!</p>
       `;
     }
+  } else {
+    console.log('[Tracker] Modal element not found!');
   }
 }
 
@@ -1659,6 +1667,9 @@ function showSuccessOverlay() {
 function checkIfRecruitmentSite() {
   const url = window.location.href.toLowerCase();
   const hostname = window.location.hostname.toLowerCase();
+
+  console.log('[Tracker] checkIfRecruitmentSite - URL:', url);
+  console.log('[Tracker] checkIfRecruitmentSite - Hostname:', hostname);
 
   const jobSites = [
     'linkedin.com/jobs',
@@ -1677,7 +1688,10 @@ function checkIfRecruitmentSite() {
     'recruitee.com'
   ];
 
-  return jobSites.some(site => url.includes(site) || hostname.includes(site));
+  const isJobSite = jobSites.some(site => url.includes(site) || hostname.includes(site));
+  console.log('[Tracker] checkIfRecruitmentSite - Result:', isJobSite);
+
+  return isJobSite;
 }
 
 // Extract job info from current page
