@@ -92,20 +92,32 @@ function addFeedbackButtonBridge(element, questionHash) {
 
 // Storage bridge - page context can't access chrome.storage, so we handle it here
 document.addEventListener('learning:storageGet', (event) => {
+  console.log('[Storage Bridge] 📥 Received storageGet request:', event.detail);
   const { key, requestId } = event.detail;
+
   chrome.storage.local.get([key], (result) => {
+    console.log('[Storage Bridge] 📤 Got data from storage, sending response for requestId:', requestId, 'data length:', result[key]?.length);
+
     document.dispatchEvent(new CustomEvent('learning:storageGetResponse', {
       detail: { data: result[key], requestId }
     }));
+
+    console.log('[Storage Bridge] ✅ Response event dispatched for requestId:', requestId);
   });
 });
 
 document.addEventListener('learning:storageSet', (event) => {
+  console.log('[Storage Bridge] 📥 Received storageSet request:', event.detail.requestId, 'key:', event.detail.key);
   const { key, value, requestId } = event.detail;
+
   chrome.storage.local.set({ [key]: value }, () => {
+    console.log('[Storage Bridge] 📤 Data saved to storage, sending response for requestId:', requestId);
+
     document.dispatchEvent(new CustomEvent('learning:storageSetResponse', {
       detail: { success: true, requestId }
     }));
+
+    console.log('[Storage Bridge] ✅ Response event dispatched for requestId:', requestId);
   });
 });
 
