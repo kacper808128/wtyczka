@@ -598,36 +598,134 @@ function addFeedbackButton(fieldElement, questionHash) {
     const feedbackContainer = document.createElement('div');
     feedbackContainer.className = 'autofill-feedback';
     feedbackContainer.innerHTML = `
-      <span class="feedback-label">Czy to poprawna odpowiedź?</span>
-      <button type="button" class="feedback-btn feedback-yes" data-hash="${questionHash}" data-feedback="positive">
-        👍 Tak
-      </button>
-      <button type="button" class="feedback-btn feedback-no" data-hash="${questionHash}" data-feedback="negative">
-        👎 Nie
-      </button>
-      <button type="button" class="feedback-btn feedback-edit" data-hash="${questionHash}">
-        ✏️ Edytuj
-      </button>
+      <div class="feedback-badge" title="Wypełniono przez AI - najedź aby ocenić">✓</div>
+      <div class="feedback-tooltip">
+        <div class="feedback-tooltip-content">
+          <span class="feedback-label">Poprawna odpowiedź?</span>
+          <div class="feedback-buttons">
+            <button type="button" class="feedback-btn feedback-yes" data-hash="${questionHash}" data-feedback="positive" title="Tak, poprawna">
+              👍
+            </button>
+            <button type="button" class="feedback-btn feedback-no" data-hash="${questionHash}" data-feedback="negative" title="Nie, niepoprawna">
+              👎
+            </button>
+            <button type="button" class="feedback-btn feedback-edit" data-hash="${questionHash}" title="Edytuj odpowiedź">
+              ✏️
+            </button>
+          </div>
+        </div>
+      </div>
     `;
 
-    // Style feedback container to not overlap content below
+    // Style feedback container with badge + tooltip
     feedbackContainer.style.cssText = `
       position: absolute;
-      top: 100%;
-      right: 0;
-      margin-top: 4px;
-      padding: 8px 12px;
-      background: white;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      top: 50%;
+      right: -35px;
+      transform: translateY(-50%);
       z-index: 10000;
+    `;
+
+    // Style the badge (always visible)
+    const badge = feedbackContainer.querySelector('.feedback-badge');
+    badge.style.cssText = `
+      width: 24px;
+      height: 24px;
+      background: #4CAF50;
+      color: white;
+      border-radius: 50%;
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      white-space: nowrap;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      transition: all 0.2s ease;
     `;
+
+    // Style the tooltip (hidden by default, shown on hover)
+    const tooltip = feedbackContainer.querySelector('.feedback-tooltip');
+    tooltip.style.cssText = `
+      position: absolute;
+      left: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      margin-left: 8px;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s ease, visibility 0.2s ease;
+      pointer-events: none;
+    `;
+
+    const tooltipContent = feedbackContainer.querySelector('.feedback-tooltip-content');
+    tooltipContent.style.cssText = `
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 8px 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      white-space: nowrap;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    `;
+
+    const label = feedbackContainer.querySelector('.feedback-label');
+    label.style.cssText = `
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 2px;
+    `;
+
+    const buttonsContainer = feedbackContainer.querySelector('.feedback-buttons');
+    buttonsContainer.style.cssText = `
+      display: flex;
+      gap: 6px;
+    `;
+
+    // Style individual buttons
+    feedbackContainer.querySelectorAll('.feedback-btn').forEach(btn => {
+      btn.style.cssText = `
+        padding: 6px 10px;
+        border: 1px solid #ddd;
+        background: white;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        transition: all 0.2s ease;
+      `;
+    });
+
+    // Show tooltip on badge hover
+    badge.addEventListener('mouseenter', () => {
+      tooltip.style.opacity = '1';
+      tooltip.style.visibility = 'visible';
+      tooltip.style.pointerEvents = 'auto';
+      badge.style.transform = 'scale(1.1)';
+    });
+
+    // Keep tooltip visible when hovering over it
+    tooltip.addEventListener('mouseenter', () => {
+      tooltip.style.opacity = '1';
+      tooltip.style.visibility = 'visible';
+      tooltip.style.pointerEvents = 'auto';
+    });
+
+    // Hide tooltip when mouse leaves both badge and tooltip
+    const hideTooltip = () => {
+      setTimeout(() => {
+        if (!feedbackContainer.matches(':hover')) {
+          tooltip.style.opacity = '0';
+          tooltip.style.visibility = 'hidden';
+          tooltip.style.pointerEvents = 'none';
+          badge.style.transform = 'scale(1)';
+        }
+      }, 100);
+    };
+
+    badge.addEventListener('mouseleave', hideTooltip);
+    tooltip.addEventListener('mouseleave', hideTooltip);
 
     // Set relative positioning for parent
     const originalPosition = window.getComputedStyle(parent).position;
@@ -647,32 +745,41 @@ function addFeedbackButton(fieldElement, questionHash) {
         const feedback = e.target.dataset.feedback;
         await recordFeedback(hash, feedback);
 
-        // Show confirmation but keep buttons visible (disabled)
+        // Update badge to show feedback result
+        const badgeElement = feedbackContainer.querySelector('.feedback-badge');
+        const label = feedbackContainer.querySelector('.feedback-label');
         const yesBtn = feedbackContainer.querySelector('.feedback-yes');
         const noBtn = feedbackContainer.querySelector('.feedback-no');
         const editBtn = feedbackContainer.querySelector('.feedback-edit');
-        const label = feedbackContainer.querySelector('.feedback-label');
 
-        // Disable all buttons
+        if (feedback === 'positive') {
+          badgeElement.textContent = '👍';
+          badgeElement.style.background = '#4CAF50'; // Green
+          badgeElement.title = 'Oznaczono jako poprawne';
+        } else {
+          badgeElement.textContent = '👎';
+          badgeElement.style.background = '#f44336'; // Red
+          badgeElement.title = 'Oznaczono jako niepoprawne';
+        }
+
+        // Update label confirmation
+        label.textContent = '✓ Dziękujemy!';
+        label.style.color = 'green';
+
+        // Disable buttons
         yesBtn.disabled = true;
         noBtn.disabled = true;
         editBtn.disabled = true;
+        yesBtn.style.opacity = '0.5';
+        noBtn.style.opacity = '0.5';
+        editBtn.style.opacity = '0.5';
 
-        // Update styling to show which was clicked
-        if (feedback === 'positive') {
-          yesBtn.style.opacity = '1';
-          yesBtn.style.fontWeight = 'bold';
-          noBtn.style.opacity = '0.3';
-        } else {
-          noBtn.style.opacity = '1';
-          noBtn.style.fontWeight = 'bold';
-          yesBtn.style.opacity = '0.3';
-        }
-        editBtn.style.opacity = '0.3';
-
-        // Update label to show confirmation
-        label.textContent = '✓ Dziękujemy za feedback!';
-        label.style.color = 'green';
+        // Hide tooltip after 2 seconds
+        setTimeout(() => {
+          tooltip.style.opacity = '0';
+          tooltip.style.visibility = 'hidden';
+          tooltip.style.pointerEvents = 'none';
+        }, 2000);
       });
     });
 
