@@ -728,7 +728,28 @@ function getMockAIResponse(question, userData, options) {
 
   // If we have an answer and options, try to match it to available options
   if (answer && Array.isArray(options) && options.length > 0) {
-    return findInOptions(answer, options);
+    const matched = findInOptions(answer, options);
+
+    // If we couldn't find a match, return empty string so AI can handle translation
+    if (matched === answer) {
+      // Check if the answer actually exists in options (exact or fuzzy match)
+      const answerLower = answer.toLowerCase().trim();
+      const hasMatch = options.some(opt => {
+        if (typeof opt !== 'string') return false;
+        const optLower = opt.toLowerCase().trim();
+        return optLower === answerLower ||
+               optLower.includes(answerLower) ||
+               answerLower.includes(optLower);
+      });
+
+      if (!hasMatch) {
+        // No match found - let AI handle translation
+        console.log(`[Mock AI] Value "${answer}" doesn't match any option, deferring to AI for translation`);
+        return '';
+      }
+    }
+
+    return matched;
   }
 
   return answer || '';
