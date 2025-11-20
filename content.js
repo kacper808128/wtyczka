@@ -855,33 +855,55 @@ async function fillCustomDropdown(element, userData, question) {
                             listbox.querySelector('.scrollable') ||
                             listbox;
 
-      // Scroll to load all options - check if we reached the bottom by monitoring scrollTop
-      let previousScrollTop = -1;
-      let currentScrollTop = 0;
+      // For virtualized dropdowns, we need to scroll gradually and track unique options
+      const seenOptionTexts = new Set();
+      let previousUniqueCount = 0;
+      let stableCount = 0;
       let attempts = 0;
-      const maxAttempts = 50; // Increased for large lists (250+ countries)
-      const scrollDelay = 300; // Slightly longer delay for loading
+      const maxAttempts = 100; // More attempts for gradual scrolling
+      const scrollStep = 500; // Scroll 500px at a time
+      const scrollDelay = 250; // Wait for render
+
+      console.log(`[Custom Dropdown] Initial options in DOM: ${listbox.querySelectorAll('[role="option"], [role="menuitem"]').length}`);
 
       do {
-        previousScrollTop = currentScrollTop;
+        // Collect currently visible unique options
+        const currentOptions = Array.from(listbox.querySelectorAll('[role="option"], [role="menuitem"]'));
+        currentOptions.forEach(opt => {
+          if (opt && opt.textContent) {
+            const text = opt.textContent.trim();
+            if (text) seenOptionTexts.add(text);
+          }
+        });
 
-        // Scroll to bottom
-        scrollContainer.scrollTop = scrollContainer.scrollHeight;
-        currentScrollTop = scrollContainer.scrollTop;
+        const currentUniqueCount = seenOptionTexts.size;
 
-        // Wait for new options to load
+        // Check if new unique options appeared
+        if (currentUniqueCount > previousUniqueCount) {
+          stableCount = 0; // Reset stable counter
+          previousUniqueCount = currentUniqueCount;
+        } else {
+          stableCount++; // No new options, increment stable counter
+        }
+
+        attempts++;
+        console.log(`[Custom Dropdown] Scroll attempt ${attempts}: unique options=${currentUniqueCount}, stable=${stableCount}`);
+
+        // Stop if no new options for 3 consecutive attempts
+        if (stableCount >= 3) {
+          console.log(`[Custom Dropdown] No new options for 3 attempts, stopping`);
+          break;
+        }
+
+        // Scroll down gradually
+        scrollContainer.scrollTop += scrollStep;
+
+        // Wait for new options to render
         await new Promise(resolve => setTimeout(resolve, scrollDelay));
 
-        const currentCount = listbox.querySelectorAll('[role="option"], [role="menuitem"]').length;
-        attempts++;
+      } while (attempts < maxAttempts);
 
-        console.log(`[Custom Dropdown] Scroll attempt ${attempts}: scrollTop=${currentScrollTop}, options=${currentCount}`);
-
-        // Continue if scrollTop changed (meaning we haven't reached the bottom yet)
-      } while (currentScrollTop > previousScrollTop && attempts < maxAttempts);
-
-      const finalCount = listbox.querySelectorAll('[role="option"], [role="menuitem"]').length;
-      console.log(`[Custom Dropdown] Finished loading: ${finalCount} total options after ${attempts} scroll attempts`);
+      console.log(`[Custom Dropdown] Finished loading: ${seenOptionTexts.size} unique options after ${attempts} scroll attempts`);
     }
 
     // Find all options
