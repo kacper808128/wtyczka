@@ -1071,7 +1071,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           continue;
         }
 
-        // Custom dropdowns
+        // Custom dropdowns (LEGACY: aria-haspopup="dialog")
+        // Note: Newer custom dropdowns are handled by fillCustomDropdown() in individual processing
         if (element.tagName === 'BUTTON' && element.getAttribute('aria-haspopup') === 'dialog') {
           const question = getQuestionForInput(element);
           if (!question) {
@@ -1082,19 +1083,10 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           let filled = false;  // Track if we successfully filled this
 
           try {
-            console.log(`[Gemini Filler] Processing custom dropdown: "${question}"`);
+            console.log(`[Gemini Filler] Processing custom dropdown (dialog): "${question}"`);
 
-            const result = await getAIResponse(question, userData, null);
-            const answer = result.answer;
-            const answerSource = result.source;
-
-            if (!answer) {
-              console.log(`[Gemini Filler] Custom dropdown: no answer for "${question}"`);
-              continue;  // Don't mark as processed - let second pass retry
-            }
-
-            console.log(`[Gemini Filler] Custom dropdown: got answer "${answer}" from ${answerSource}`);
-
+            // IMPORTANT: Open dropdown FIRST to get options, THEN call getAIResponse with options
+            // This allows smart date-to-timeperiod conversion in getMockAIResponse
             element.click();
             await new Promise(resolve => setTimeout(resolve, 1000));
 
@@ -1111,16 +1103,22 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
             console.log(`[Gemini Filler] Custom dropdown: found ${optionsInDialog.length} options in dialog`);
 
-            // Debug: Show first 10 options to see format
             const optionsText = optionsInDialog.map(o => o.textContent.trim());
-            const first10 = optionsText.slice(0, 10);
-            console.log(`[Gemini Filler] Custom dropdown: first 10 options:`, first10);
+            console.log(`[Gemini Filler] Custom dropdown: first 10 options:`, optionsText.slice(0, 10));
 
-            // Debug: Find options containing "poland" or "polska"
-            const polandOptions = optionsText.filter(o =>
-              o.toLowerCase().includes('poland') || o.toLowerCase().includes('polska')
-            );
-            console.log(`[Gemini Filler] Custom dropdown: options containing "poland"/"polska":`, polandOptions);
+            // NOW get AI response with options so date conversion works correctly
+            const result = await getAIResponse(question, userData, optionsText);
+            const answer = result.answer;
+            const answerSource = result.source;
+
+            if (!answer) {
+              console.log(`[Gemini Filler] Custom dropdown: no answer for "${question}"`);
+              // Close dropdown before continuing
+              element.click();
+              continue;  // Don't mark as processed - let second pass retry
+            }
+
+            console.log(`[Gemini Filler] Custom dropdown: got answer "${answer}" from ${answerSource}`);
 
             const bestMatch = findBestMatch(answer, optionsText);
             console.log(`[Gemini Filler] Custom dropdown: findBestMatch("${answer}") -> "${bestMatch}"`);
