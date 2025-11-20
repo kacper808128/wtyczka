@@ -623,17 +623,17 @@ function fillDatepicker(element, dateValue) {
 /**
  * Fill a Selectize.js dropdown
  * @param {HTMLElement} selectElement - The original SELECT element with .selectized class
- * @param {string} value - Value to select
- * @param {Array<string>} options - Available options
+ * @param {Object} userData - User data for AI
+ * @param {string} question - Question text for the field
  * @returns {Promise<boolean>} Success status
  */
-async function fillSelectize(selectElement, value, options) {
+async function fillSelectize(selectElement, userData, question) {
   try {
-    console.log(`[Selectize] Attempting to fill with value: "${value}"`);
+    console.log(`[Selectize] Attempting to fill for question: "${question}"`);
 
     // Validate inputs
-    if (!selectElement || !value) {
-      console.warn('[Selectize] Invalid selectElement or value');
+    if (!selectElement || !userData || !question) {
+      console.warn('[Selectize] Invalid selectElement, userData or question');
       return false;
     }
 
@@ -666,12 +666,28 @@ async function fillSelectize(selectElement, value, options) {
     const optionElements = Array.from(dropdown.querySelectorAll('.option'));
     console.log(`[Selectize] Found ${optionElements.length} options`);
 
-    // Fuzzy match value to options with validation
+    // Get option texts and ask AI WITH OPTIONS (so it can translate Polish → English)
     const optionTexts = optionElements.map(opt => opt && opt.textContent ? opt.textContent.trim() : '').filter(Boolean);
-    const matchedText = fuzzyMatch(value, optionTexts);
+    console.log(`[Selectize] Asking AI for answer with ${optionTexts.length} options`);
+
+    const result = await getAIResponse(question, userData, optionTexts);
+    const answer = result.answer;
+    const answerSource = result.source;
+
+    if (!answer || answer === '') {
+      console.warn(`[Selectize] No answer from AI for "${question}"`);
+      // Close dropdown
+      selectizeInput.blur();
+      return false;
+    }
+
+    console.log(`[Selectize] AI returned: "${answer}" (source: ${answerSource})`);
+
+    // Fuzzy match answer to options
+    const matchedText = fuzzyMatch(answer, optionTexts);
 
     if (!matchedText) {
-      console.warn(`[Selectize] No match found for "${value}" in options:`, optionTexts);
+      console.warn(`[Selectize] No match found for "${answer}" in options:`, optionTexts);
       // Close dropdown
       selectizeInput.blur();
       return false;
@@ -705,19 +721,17 @@ async function fillSelectize(selectElement, value, options) {
 /**
  * Fill a custom dropdown (div-based select)
  * @param {HTMLElement} element - The dropdown trigger element
- * @param {string} value - Value to select
+ * @param {Object} userData - User data for AI
+ * @param {string} question - Question text for the field
  * @returns {Promise<boolean>} Success status
  */
-async function fillCustomDropdown(element, value) {
+async function fillCustomDropdown(element, userData, question) {
   try {
     // Validate inputs
-    if (!element || !value) {
-      console.warn('[Custom Dropdown] Invalid element or value');
+    if (!element || !userData || !question) {
+      console.warn('[Custom Dropdown] Invalid element, userData or question');
       return false;
     }
-
-    // Ensure value is a string
-    const valueStr = typeof value === 'string' ? value : String(value);
 
     // IMPORTANT: First, close any previously opened dropdowns to avoid confusion
     const openDropdowns = document.querySelectorAll('[role="listbox"]:not([hidden]), [role="menu"]:not([hidden])');
@@ -729,8 +743,7 @@ async function fillCustomDropdown(element, value) {
     }
 
     // Click to open dropdown
-    const elementLabel = getQuestionForInput(element);
-    console.log(`[Custom Dropdown] Opening dropdown for "${elementLabel}" (id="${element.id}")`);
+    console.log(`[Custom Dropdown] Opening dropdown for "${question}" (id="${element.id || 'no-id'}")`);
     element.click();
 
     // Wait for dropdown to open
@@ -818,7 +831,7 @@ async function fillCustomDropdown(element, value) {
     }
 
     if (!listbox) {
-      console.warn(`[Custom Dropdown] ✗ Could not find opened listbox for "${elementLabel}"`);
+      console.warn(`[Custom Dropdown] ✗ Could not find opened listbox for "${question}"`);
       // Try to close the dropdown we just opened
       element.click();
       return false;
@@ -843,12 +856,28 @@ async function fillCustomDropdown(element, value) {
 
     console.log(`[Custom Dropdown] Listbox contains ${options.length} unique options (${optionElements.length} total). First 5:`, options.slice(0, 5).map(o => o.text));
 
-    // Fuzzy match value to options
+    // Get AI response WITH OPTIONS (so it can translate Polish → English)
     const optionTexts = options.map(o => o.text).filter(Boolean);
-    const matchedText = fuzzyMatch(valueStr, optionTexts);
+    console.log(`[Custom Dropdown] Asking AI for answer with ${optionTexts.length} options`);
+
+    const result = await getAIResponse(question, userData, optionTexts);
+    const answer = result.answer;
+    const answerSource = result.source;
+
+    if (!answer || answer === '') {
+      console.warn(`[Custom Dropdown] ✗ No answer from AI for "${question}"`);
+      // Close dropdown
+      element.click();
+      return false;
+    }
+
+    console.log(`[Custom Dropdown] AI returned: "${answer}" (source: ${answerSource})`);
+
+    // Fuzzy match answer to options
+    const matchedText = fuzzyMatch(answer, optionTexts);
 
     if (!matchedText) {
-      console.warn(`[Custom Dropdown] ✗ No match for "${valueStr}" in ${options.length} options for "${elementLabel}"`);
+      console.warn(`[Custom Dropdown] ✗ No match for "${answer}" in ${options.length} options for "${question}"`);
       console.warn(`[Custom Dropdown] Available options:`, optionTexts);
       // Close dropdown
       element.click();
@@ -859,7 +888,7 @@ async function fillCustomDropdown(element, value) {
     const matchedOption = options.find(o => o && o.text === matchedText);
     if (matchedOption && matchedOption.element) {
       matchedOption.element.click();
-      console.log(`[Custom Dropdown] ✓ Selected "${matchedText}" for "${elementLabel}"`);
+      console.log(`[Custom Dropdown] ✓ Selected "${matchedText}" for "${question}"`);
 
       // Wait for dropdown to close
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -1164,13 +1193,13 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               console.warn(`[Gemini Filler] Failed to fill datepicker with: "${answer}"`);
             }
           } else if (metadata.type === 'selectize') {
-            // Handle Selectize.js dropdown
-            const success = await fillSelectize(element, answer, metadata.options);
+            // Handle Selectize.js dropdown - it handles AI internally
+            const success = await fillSelectize(element, userData, batchQuestions[i].question);
             if (success) {
               aChangeWasMade = true;
               filled = true;
             } else {
-              console.warn(`[Gemini Filler] Failed to fill selectize with: "${answer}"`);
+              console.warn(`[Gemini Filler] Failed to fill selectize for question: "${batchQuestions[i].question}"`);
             }
           } else {
             // Text input, textarea, etc.
@@ -1495,8 +1524,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             }
           }
         } else if (fieldMetadata.type === 'custom-dropdown') {
-          // Use new custom dropdown handler
-          const success = await fillCustomDropdown(element, answer);
+          // Use new custom dropdown handler - it handles AI internally
+          const success = await fillCustomDropdown(element, userData, question);
           if (success) {
             aChangeWasMade = true;
           }
@@ -1524,8 +1553,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             aChangeWasMade = true;
           }
         } else if (fieldMetadata.type === 'selectize') {
-          // Handle Selectize.js dropdown
-          const success = await fillSelectize(element, answer, fieldMetadata.options);
+          // Handle Selectize.js dropdown - it handles AI internally
+          const success = await fillSelectize(element, userData, question);
           if (success) {
             aChangeWasMade = true;
           }

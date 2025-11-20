@@ -192,6 +192,11 @@ MATCHING GUIDELINES:
 - Match concepts, not exact words (e.g., "Education level" = "Wykształcenie", "Years of experience" = "Lata doświadczenia")
 - For SELECT and RADIO questions with [Options], you MUST return one of the exact option texts
 - For DATEPICKER questions, return date in YYYY-MM-DD format (e.g., "2025-03-15")
+- IMPORTANT: Translate Polish values to English options when needed:
+  * "Mężczyzna" → "Male", "Kobieta" → "Female"
+  * "Polska" → "Poland", "Niemcy" → "Germany"
+  * "Tak" → "Yes", "Nie" → "No"
+  * Apply language intelligence to match semantic meaning
 - If user data has a related value but it's not in the options list, find the closest matching option
 - Use your judgment to match semantic meaning across languages
 
@@ -296,14 +301,21 @@ Example response:
 }
 
 async function getRealAIResponse(question, userData, apiKey, options, timeoutMs = 15000) {
-  let prompt = `You are an expert recruitment form filler. Your task is to select the best option from a list for a given question, based on the user's data.
+  let prompt = `You are an expert recruitment form filler with multilingual capabilities. Your task is to select the best option from a list for a given question, based on the user's data.
 
-User data: ${JSON.stringify(userData, null, 2)}
+User data (may contain Polish values): ${JSON.stringify(userData, null, 2)}
 Question: "${question}"`;
 
   if (options && options.length > 0) {
     prompt += `\nAvailable options: [${options.join(', ')}]`;
-    prompt += `\n\nYour response MUST be one of the "Available options". Do not add any extra text, explanation, or punctuation. Just return the chosen option text exactly as it appears in the list.`;
+    prompt += `\n\nIMPORTANT INSTRUCTIONS:
+- Your response MUST be one of the "Available options" exactly as written
+- If userData contains Polish values and options are in English, translate intelligently:
+  * "Mężczyzna" → "Male", "Kobieta" → "Female"
+  * "Polska" → "Poland", "Niemcy" → "Germany"
+  * "Tak" → "Yes", "Nie" → "No"
+- Match semantic meaning, not literal text
+- Return ONLY the exact option text, no explanations`;
   } else if (options && options.length === 0) {
     // Empty options array - probably Selectize dropdown not loaded yet
     prompt += `\n\nNote: This is a select/dropdown field, but options are not yet loaded. Please try to answer from userData, or return empty string if unsure.`;
@@ -716,7 +728,28 @@ function getMockAIResponse(question, userData, options) {
 
   // If we have an answer and options, try to match it to available options
   if (answer && Array.isArray(options) && options.length > 0) {
-    return findInOptions(answer, options);
+    const matched = findInOptions(answer, options);
+
+    // If we couldn't find a match, return empty string so AI can handle translation
+    if (matched === answer) {
+      // Check if the answer actually exists in options (exact or fuzzy match)
+      const answerLower = answer.toLowerCase().trim();
+      const hasMatch = options.some(opt => {
+        if (typeof opt !== 'string') return false;
+        const optLower = opt.toLowerCase().trim();
+        return optLower === answerLower ||
+               optLower.includes(answerLower) ||
+               answerLower.includes(optLower);
+      });
+
+      if (!hasMatch) {
+        // No match found - let AI handle translation
+        console.log(`[Mock AI] Value "${answer}" doesn't match any option, deferring to AI for translation`);
+        return '';
+      }
+    }
+
+    return matched;
   }
 
   return answer || '';
