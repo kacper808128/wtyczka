@@ -98,7 +98,11 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       let optionsText = null;
       try {
         if (element.tagName === 'SELECT') {
-          optionsText = Array.from(element.options).map(o => o.text).filter(t => t.trim());
+          // Filter out placeholder options (like "-- Wybierz --", "Select", etc.)
+          const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
+          optionsText = Array.from(element.options)
+            .map(o => o.text)
+            .filter(t => t.trim() && !placeholderPatterns.test(t.trim()));
         } else if (element.getAttribute('role') === 'radiogroup') {
           const radioButtons = element.querySelectorAll('button[role="radio"]');
           optionsText = Array.from(radioButtons).map(rb => {
@@ -134,11 +138,23 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         let answer = batchAnswers[i];
         const metadata = batchMetadata[i];
 
-        // If batch AI returned empty, try mock response as fallback
-        if (!answer || answer === '') {
-          console.log(`[Gemini Filler] No batch answer for: "${batchQuestions[i].question}", trying mock fallback...`);
+        // Check if answer is a placeholder (AI sometimes returns these)
+        const isPlaceholder = (text) => {
+          if (!text) return true;
+          const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
+          return placeholderPatterns.test(text.trim());
+        };
+
+        // If batch AI returned empty or placeholder, try mock response as fallback
+        if (!answer || answer === '' || isPlaceholder(answer)) {
+          if (isPlaceholder(answer)) {
+            console.log(`[Gemini Filler] Batch AI returned placeholder "${answer}" for: "${batchQuestions[i].question}", trying mock fallback...`);
+          } else {
+            console.log(`[Gemini Filler] No batch answer for: "${batchQuestions[i].question}", trying mock fallback...`);
+          }
+
           const mockAnswer = getMockAIResponse(batchQuestions[i].question, userData, metadata.optionsText);
-          if (mockAnswer) {
+          if (mockAnswer && !isPlaceholder(mockAnswer)) {
             answer = mockAnswer;
             console.log(`[Gemini Filler] Mock fallback found: "${answer}"`);
           } else {
@@ -637,13 +653,39 @@ function findBestMatch(answer, options) {
     return null;
   }
 
+  // Polish to English country name mapping
+  const countryTranslations = {
+    'polska': 'poland',
+    'niemcy': 'germany',
+    'francja': 'france',
+    'wielka brytania': 'united kingdom',
+    'uk': 'united kingdom',
+    'usa': 'united states',
+    'stany zjednoczone': 'united states',
+    'hiszpania': 'spain',
+    'włochy': 'italy',
+    'holandia': 'netherlands',
+    'belgia': 'belgium',
+    'szwecja': 'sweden',
+    'norwegia': 'norway',
+    'dania': 'denmark',
+    'czechy': 'czech republic',
+    'słowacja': 'slovakia',
+    'austria': 'austria',
+    'szwajcaria': 'switzerland'
+  };
+
+  // Try to translate Polish country names to English
+  const lowerAnswer = answer.toLowerCase().trim();
+  const translatedAnswer = countryTranslations[lowerAnswer] || answer;
+
   // Normalize answer by removing special chars for better matching
-  const normalizedAnswer = answer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
+  const normalizedAnswer = translatedAnswer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
   const answerWords = normalizedAnswer.split(/\s+/).filter(w => w.length > 0);
 
   // PASS 1: Look for exact match (highest priority)
   for (const optionText of options) {
-    if (optionText.toLowerCase() === answer.toLowerCase()) {
+    if (optionText.toLowerCase() === translatedAnswer.toLowerCase()) {
       return optionText;
     }
   }
@@ -652,10 +694,10 @@ function findBestMatch(answer, options) {
   let substringMatch = null;
   for (const optionText of options) {
     const lowerOption = optionText.toLowerCase();
-    const lowerAnswer = answer.toLowerCase();
+    const lowerTranslatedAnswer = translatedAnswer.toLowerCase();
 
     // Exact substring match (answer is in option OR option is in answer)
-    if (lowerOption.includes(lowerAnswer) || lowerAnswer.includes(lowerOption)) {
+    if (lowerOption.includes(lowerTranslatedAnswer) || lowerTranslatedAnswer.includes(lowerOption)) {
       // Prefer shorter matches (more specific)
       if (!substringMatch || optionText.length < substringMatch.length) {
         substringMatch = optionText;

@@ -345,13 +345,38 @@ function getMockAIResponse(question, userData, options) {
   function findInOptions(value, options) {
     if (!options || !value) return value;
 
+    // Polish to English country name mapping
+    const countryTranslations = {
+      'polska': 'poland',
+      'niemcy': 'germany',
+      'francja': 'france',
+      'wielka brytania': 'united kingdom',
+      'uk': 'united kingdom',
+      'usa': 'united states',
+      'stany zjednoczone': 'united states',
+      'hiszpania': 'spain',
+      'włochy': 'italy',
+      'holandia': 'netherlands',
+      'belgia': 'belgium',
+      'szwecja': 'sweden',
+      'norwegia': 'norway',
+      'dania': 'denmark',
+      'czechy': 'czech republic',
+      'słowacja': 'slovakia',
+      'austria': 'austria',
+      'szwajcaria': 'switzerland'
+    };
+
     const answer = value.toString();
-    const normalizedAnswer = answer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
+    const lowerAnswer = answer.toLowerCase().trim();
+    const translatedAnswer = countryTranslations[lowerAnswer] || answer;
+
+    const normalizedAnswer = translatedAnswer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
     const answerWords = normalizedAnswer.split(/\s+/).filter(w => w.length > 0);
 
     // PASS 1: Try exact match first
     for (const option of options) {
-      if (option.toLowerCase() === answer.toLowerCase()) {
+      if (option.toLowerCase() === translatedAnswer.toLowerCase()) {
         return option;
       }
     }
@@ -360,9 +385,9 @@ function getMockAIResponse(question, userData, options) {
     let substringMatch = null;
     for (const option of options) {
       const lowerOption = option.toLowerCase();
-      const lowerAnswer = answer.toLowerCase();
+      const lowerTranslatedAnswer = translatedAnswer.toLowerCase();
 
-      if (lowerOption.includes(lowerAnswer) || lowerAnswer.includes(lowerOption)) {
+      if (lowerOption.includes(lowerTranslatedAnswer) || lowerTranslatedAnswer.includes(lowerOption)) {
         if (!substringMatch || option.length < substringMatch.length) {
           substringMatch = option;
         }
