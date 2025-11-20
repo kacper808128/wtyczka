@@ -95,25 +95,40 @@ function findPreviousTextNode(element) {
 }
 
 // ==================== Storage Functions ====================
+// Page context doesn't have access to chrome.storage, so we use storage bridge
+let storageRequestCounter = 0;
 
 /**
- * Get all learned questions from storage
+ * Get all learned questions from storage (via storage bridge)
  */
 async function getLearnedQuestions() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['learnedQuestions'], (result) => {
-      if (chrome.runtime.lastError) {
-        console.error('[Learning] Error getting questions:', chrome.runtime.lastError);
-        resolve([]);
-        return;
+    const requestId = `storage_${Date.now()}_${storageRequestCounter++}`;
+
+    const responseHandler = (event) => {
+      if (event.detail.requestId === requestId) {
+        document.removeEventListener('learning:storageGetResponse', responseHandler);
+        resolve(event.detail.data || []);
       }
-      resolve(result.learnedQuestions || []);
-    });
+    };
+
+    document.addEventListener('learning:storageGetResponse', responseHandler);
+
+    // Timeout after 5 seconds
+    setTimeout(() => {
+      document.removeEventListener('learning:storageGetResponse', responseHandler);
+      console.warn('[Learning] Storage get timeout');
+      resolve([]);
+    }, 5000);
+
+    document.dispatchEvent(new CustomEvent('learning:storageGet', {
+      detail: { key: 'learnedQuestions', requestId }
+    }));
   });
 }
 
 /**
- * Save learned questions to storage
+ * Save learned questions to storage (via storage bridge)
  */
 async function saveLearnedQuestions(questions) {
   return new Promise((resolve, reject) => {
@@ -128,14 +143,31 @@ async function saveLearnedQuestions(questions) {
       questions = questions.slice(0, Math.floor(questions.length * 0.7));
     }
 
-    chrome.storage.local.set({ learnedQuestions: questions }, () => {
-      if (chrome.runtime.lastError) {
-        console.error('[Learning] Error saving questions:', chrome.runtime.lastError);
-        reject(chrome.runtime.lastError);
-      } else {
-        resolve();
+    const requestId = `storage_${Date.now()}_${storageRequestCounter++}`;
+
+    const responseHandler = (event) => {
+      if (event.detail.requestId === requestId) {
+        document.removeEventListener('learning:storageSetResponse', responseHandler);
+        if (event.detail.success) {
+          resolve();
+        } else {
+          reject(new Error('Storage set failed'));
+        }
       }
-    });
+    };
+
+    document.addEventListener('learning:storageSetResponse', responseHandler);
+
+    // Timeout after 5 seconds
+    setTimeout(() => {
+      document.removeEventListener('learning:storageSetResponse', responseHandler);
+      console.warn('[Learning] Storage set timeout');
+      reject(new Error('Storage set timeout'));
+    }, 5000);
+
+    document.dispatchEvent(new CustomEvent('learning:storageSet', {
+      detail: { key: 'learnedQuestions', value: questions, requestId }
+    }));
   });
 }
 
