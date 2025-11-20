@@ -552,6 +552,9 @@ async function editQuestion(questionHash) {
   }
 }
 
+// Make functions global so onclick can access them
+window.editQuestion = editQuestion;
+
 async function deleteQuestion(questionHash) {
   if (!confirm('Czy na pewno chcesz usunąć to pytanie?')) return;
 
@@ -564,6 +567,9 @@ async function deleteQuestion(questionHash) {
   statusEl.style.color = 'green';
   setTimeout(() => { statusEl.textContent = ''; statusEl.style.color = ''; }, 2000);
 }
+
+// Make functions global so onclick can access them
+window.deleteQuestion = deleteQuestion;
 
 async function handleExport() {
   await exportLearnedQuestions();

@@ -300,12 +300,19 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           }
         } else {
           // Answer came from batch AI - check if it's actually from userData
-          const isFromUserData = Object.values(userData).some(val =>
-            val && val.toString().toLowerCase() === answer.toLowerCase()
-          );
+          // Check both exact match and partial match (e.g., "Wyższe" in userData matches "Wyższe - magister" from SELECT)
+          const answerLower = answer.toLowerCase();
+          const isFromUserData = Object.values(userData).some(val => {
+            if (!val) return false;
+            const valStr = val.toString().toLowerCase();
+            // Exact match OR userData value is contained in answer OR answer is contained in userData value
+            return valStr === answerLower ||
+                   (valStr.length > 3 && answerLower.includes(valStr)) ||
+                   (answerLower.length > 3 && valStr.includes(answerLower));
+          });
           answerSource = isFromUserData ? 'mock' : 'ai';
           if (isFromUserData) {
-            console.log(`[Gemini Filler] Answer "${answer}" found in userData, marking as mock`);
+            console.log(`[Gemini Filler] Answer "${answer}" matches userData value, marking as mock`);
           }
         }
 
