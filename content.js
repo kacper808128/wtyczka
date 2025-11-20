@@ -192,22 +192,37 @@ function detectFieldType(element) {
     metadata.type = 'selectize';
     metadata.isCustom = true;
 
-    // Try to find selectize dropdown to extract options
-    const selectizeContainer = element.parentElement?.querySelector('.selectize-control');
+    // Try to find selectize container (could be sibling or in parent)
+    let selectizeContainer = element.nextElementSibling;
+    if (!selectizeContainer || !selectizeContainer.classList.contains('selectize-control')) {
+      selectizeContainer = element.parentElement?.querySelector('.selectize-control');
+    }
+
     if (selectizeContainer) {
+      // Try to extract options from dropdown (even if hidden)
       const dropdown = selectizeContainer.querySelector('.selectize-dropdown');
       if (dropdown) {
         const optionElements = dropdown.querySelectorAll('.option');
-        metadata.options = Array.from(optionElements).map(opt => opt.textContent.trim()).filter(Boolean);
+        if (optionElements.length > 0) {
+          metadata.options = Array.from(optionElements).map(opt => opt.textContent.trim()).filter(Boolean);
+          console.log(`[Selectize Detection] Found ${metadata.options.length} options in dropdown for ${element.id}`);
+        }
+      }
+
+      // If dropdown empty, try clicking to populate it
+      if (!metadata.options || metadata.options.length === 0) {
+        console.log(`[Selectize Detection] Dropdown empty for ${element.id}, will extract options during fill`);
+        metadata.options = []; // Empty array indicates Selectize but options need to be loaded
       }
     }
 
-    // Fallback: use original SELECT options if dropdown not found
-    if (!metadata.options || metadata.options.length === 0) {
+    // Fallback: use original SELECT options if found
+    if ((!metadata.options || metadata.options.length === 0) && element.options.length > 0) {
       const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
       metadata.options = Array.from(element.options)
         .map(o => o.text.trim())
         .filter(t => t && !placeholderPatterns.test(t));
+      console.log(`[Selectize Detection] Using ${metadata.options.length} options from SELECT element for ${element.id}`);
     }
 
     return metadata;
@@ -1699,6 +1714,17 @@ function getQuestionForInput(input) {
     const label = document.querySelector(`label[for="${input.id}"]`);
     if (label) {
       questionText = label.textContent.trim();
+    }
+
+    // Special case: Selectize.js creates inputs with ID ending in '-selectized'
+    // and moves the label to point to that input, so for original SELECT elements
+    // with class 'selectized', also check for label pointing to ID + '-selectized'
+    if (!questionText && input.tagName === 'SELECT' && input.classList.contains('selectized')) {
+      const selectizeLabel = document.querySelector(`label[for="${input.id}-selectized"]`);
+      if (selectizeLabel) {
+        questionText = selectizeLabel.textContent.trim();
+        console.log(`[Gemini Filler] Found Selectize label for SELECT: "${questionText}"`);
+      }
     }
   }
 
