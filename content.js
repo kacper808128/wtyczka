@@ -377,7 +377,7 @@ function fuzzyMatch(answer, options) {
     }
 
     const optWords = opt.toLowerCase().split(/\s+/).filter(w => w && w.length > 2);
-    const matches = answerWords.filter(aw => optWords.some(ow => ow.includes(aw) || aw.includes(ow)));
+    const matches = answerWords.filter(aw => optWords.includes(aw));
     return { option: opt, score: matches.length };
   });
 
