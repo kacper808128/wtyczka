@@ -705,19 +705,17 @@ async function fillSelectize(selectElement, value, options) {
 /**
  * Fill a custom dropdown (div-based select)
  * @param {HTMLElement} element - The dropdown trigger element
- * @param {string} value - Value to select
+ * @param {Object} userData - User data for AI
+ * @param {string} question - Question text for the field
  * @returns {Promise<boolean>} Success status
  */
-async function fillCustomDropdown(element, value) {
+async function fillCustomDropdown(element, userData, question) {
   try {
     // Validate inputs
-    if (!element || !value) {
-      console.warn('[Custom Dropdown] Invalid element or value');
+    if (!element || !userData || !question) {
+      console.warn('[Custom Dropdown] Invalid element, userData or question');
       return false;
     }
-
-    // Ensure value is a string
-    const valueStr = typeof value === 'string' ? value : String(value);
 
     // IMPORTANT: First, close any previously opened dropdowns to avoid confusion
     const openDropdowns = document.querySelectorAll('[role="listbox"]:not([hidden]), [role="menu"]:not([hidden])');
@@ -843,12 +841,28 @@ async function fillCustomDropdown(element, value) {
 
     console.log(`[Custom Dropdown] Listbox contains ${options.length} unique options (${optionElements.length} total). First 5:`, options.slice(0, 5).map(o => o.text));
 
-    // Fuzzy match value to options
+    // Get AI response WITH OPTIONS (so it can translate Polish → English)
     const optionTexts = options.map(o => o.text).filter(Boolean);
-    const matchedText = fuzzyMatch(valueStr, optionTexts);
+    console.log(`[Custom Dropdown] Asking AI for answer with ${optionTexts.length} options`);
+
+    const result = await getAIResponse(question, userData, optionTexts);
+    const answer = result.answer;
+    const answerSource = result.source;
+
+    if (!answer || answer === '') {
+      console.warn(`[Custom Dropdown] ✗ No answer from AI for "${question}"`);
+      // Close dropdown
+      element.click();
+      return false;
+    }
+
+    console.log(`[Custom Dropdown] AI returned: "${answer}" (source: ${answerSource})`);
+
+    // Fuzzy match answer to options
+    const matchedText = fuzzyMatch(answer, optionTexts);
 
     if (!matchedText) {
-      console.warn(`[Custom Dropdown] ✗ No match for "${valueStr}" in ${options.length} options for "${elementLabel}"`);
+      console.warn(`[Custom Dropdown] ✗ No match for "${answer}" in ${options.length} options for "${question}"`);
       console.warn(`[Custom Dropdown] Available options:`, optionTexts);
       // Close dropdown
       element.click();
@@ -859,7 +873,7 @@ async function fillCustomDropdown(element, value) {
     const matchedOption = options.find(o => o && o.text === matchedText);
     if (matchedOption && matchedOption.element) {
       matchedOption.element.click();
-      console.log(`[Custom Dropdown] ✓ Selected "${matchedText}" for "${elementLabel}"`);
+      console.log(`[Custom Dropdown] ✓ Selected "${matchedText}" for "${question}"`);
 
       // Wait for dropdown to close
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -1495,8 +1509,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             }
           }
         } else if (fieldMetadata.type === 'custom-dropdown') {
-          // Use new custom dropdown handler
-          const success = await fillCustomDropdown(element, answer);
+          // Use new custom dropdown handler - it handles AI internally
+          const success = await fillCustomDropdown(element, userData, question);
           if (success) {
             aChangeWasMade = true;
           }
