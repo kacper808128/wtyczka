@@ -170,11 +170,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function fillFormWithAI(userData, processedElements = new Set(), depth = 0, isRetry = false, missingFields = null) {
   console.log(`[Gemini Filler] fillFormWithAI called: depth=${depth}, isRetry=${isRetry}, missingFields=${missingFields ? `array[${missingFields.length}]` : 'null'}`);
 
-  // Helper function to check if answer is a placeholder (AI sometimes returns these)
+  // Helper function to check if answer is a placeholder or invalid response (AI sometimes returns these)
   const isPlaceholder = (text) => {
     if (!text) return true;
+    const trimmed = text.trim();
+    // Check for placeholder patterns like "-- Wybierz --", "Select", etc.
     const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
-    return placeholderPatterns.test(text.trim());
+    if (placeholderPatterns.test(trimmed)) return true;
+    // Check for AI's "I don't know" type responses
+    const invalidResponsePatterns = /(not available|please provide|information is not|brak danych|nie ma informacji)/i;
+    if (invalidResponsePatterns.test(trimmed)) return true;
+    return false;
   };
 
   // Track missing fields only on first call (depth 0)
@@ -315,9 +321,10 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             if (!val) return false;
             const valStr = val.toString().toLowerCase();
             // Exact match OR userData value is contained in answer OR answer is contained in userData value
+            // Use >= 3 instead of > 3 to catch values like "+48" (exactly 3 chars)
             const matches = valStr === answerLower ||
-                   (valStr.length > 3 && answerLower.includes(valStr)) ||
-                   (answerLower.length > 3 && valStr.includes(answerLower));
+                   (valStr.length >= 3 && answerLower.includes(valStr)) ||
+                   (answerLower.length >= 3 && valStr.includes(answerLower));
 
             if (matches) {
               console.log(`[Gemini Filler] ✓ Match found! answer "${answer}" matches userData value "${val}"`);
@@ -786,8 +793,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           console.log(`[Gemini Filler] Individual processing: filled "${question}" = "${answer}" (source: ${answerSource})`);
         }
 
-        // Capture the question and answer for learning
-        if (answer && answerSource === 'ai') {
+        // Capture the question and answer for learning (only if from AI and not a placeholder)
+        if (answer && answerSource === 'ai' && !isPlaceholder(answer)) {
           try {
             console.log(`[DEBUG] Calling captureQuestion for "${question}"...`);
             const capturedHash = await captureQuestionBridge(element, answer);
@@ -800,6 +807,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           } catch (err) {
             console.warn('[Gemini Filler] Error capturing question for learning:', err);
           }
+        } else if (answer && answerSource === 'ai' && isPlaceholder(answer)) {
+          console.log(`[Gemini Filler] Skipping learning capture for placeholder answer: "${answer}"`);
         }
 
         // Add feedback button for learned and AI answers (not for mock data)
