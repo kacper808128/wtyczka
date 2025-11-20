@@ -341,26 +341,55 @@ function getMockAIResponse(question, userData, options) {
   const lowerQuestion = question.toLowerCase();
 
   // Helper function to find best match in options
+  // Uses same logic as findBestMatch in content.js
   function findInOptions(value, options) {
     if (!options || !value) return value;
 
-    const lowerValue = value.toString().toLowerCase();
+    const answer = value.toString();
+    const normalizedAnswer = answer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
+    const answerWords = normalizedAnswer.split(/\s+/).filter(w => w.length > 0);
 
-    // Try exact match first
+    // PASS 1: Try exact match first
     for (const option of options) {
-      if (option.toLowerCase() === lowerValue) {
+      if (option.toLowerCase() === answer.toLowerCase()) {
         return option;
       }
     }
 
-    // Try partial match
+    // PASS 2: Try substring match (prefer shorter/more specific)
+    let substringMatch = null;
     for (const option of options) {
-      if (option.toLowerCase().includes(lowerValue) || lowerValue.includes(option.toLowerCase())) {
-        return option;
+      const lowerOption = option.toLowerCase();
+      const lowerAnswer = answer.toLowerCase();
+
+      if (lowerOption.includes(lowerAnswer) || lowerAnswer.includes(lowerOption)) {
+        if (!substringMatch || option.length < substringMatch.length) {
+          substringMatch = option;
+        }
       }
     }
 
-    return value; // Return original if no match
+    if (substringMatch) {
+      return substringMatch;
+    }
+
+    // PASS 3: Word-based scoring
+    let bestMatch = null;
+    let maxScore = 0;
+
+    for (const option of options) {
+      const normalizedOption = option.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
+      const optionWords = normalizedOption.split(/\s+/).filter(w => w.length > 0);
+
+      const score = answerWords.filter(word => optionWords.includes(word)).length;
+
+      if (score > maxScore) {
+        maxScore = score;
+        bestMatch = option;
+      }
+    }
+
+    return bestMatch || value; // Return best match or original if no match
   }
 
   // NEW: Intelligent fuzzy matching in userData keys
