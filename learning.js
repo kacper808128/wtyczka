@@ -610,6 +610,25 @@ function addFeedbackButton(fieldElement, questionHash) {
       </button>
     `;
 
+    // Style feedback container to not overlap content below
+    feedbackContainer.style.cssText = `
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 4px;
+      padding: 8px 12px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      white-space: nowrap;
+    `;
+
     // Set relative positioning for parent
     const originalPosition = window.getComputedStyle(parent).position;
     if (originalPosition === 'static') {

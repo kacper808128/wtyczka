@@ -858,13 +858,16 @@ async function fillCustomDropdown(element, userData, question) {
       // For virtualized dropdowns, we need to scroll gradually and track unique options
       const seenOptionTexts = new Set();
       let previousUniqueCount = 0;
+      let previousScrollTop = -1;
       let stableCount = 0;
+      let scrollStuckCount = 0;
       let attempts = 0;
-      const maxAttempts = 100; // More attempts for gradual scrolling
-      const scrollStep = 500; // Scroll 500px at a time
-      const scrollDelay = 250; // Wait for render
+      const maxAttempts = 100;
+      const scrollStep = 2000; // Larger steps - 2000px at a time
+      const scrollDelay = 150; // Faster polling
 
       console.log(`[Custom Dropdown] Initial options in DOM: ${listbox.querySelectorAll('[role="option"], [role="menuitem"]').length}`);
+      console.log(`[Custom Dropdown] Scroll container: ${scrollContainer.tagName}, scrollHeight=${scrollContainer.scrollHeight}, clientHeight=${scrollContainer.clientHeight}`);
 
       do {
         // Collect currently visible unique options
@@ -877,23 +880,36 @@ async function fillCustomDropdown(element, userData, question) {
         });
 
         const currentUniqueCount = seenOptionTexts.size;
+        const currentScrollTop = scrollContainer.scrollTop;
 
         // Check if new unique options appeared
         if (currentUniqueCount > previousUniqueCount) {
           stableCount = 0; // Reset stable counter
+          scrollStuckCount = 0; // Reset scroll stuck counter
           previousUniqueCount = currentUniqueCount;
         } else {
-          stableCount++; // No new options, increment stable counter
+          stableCount++;
+        }
+
+        // Check if scroll position changed
+        if (currentScrollTop > previousScrollTop) {
+          scrollStuckCount = 0; // Scroll is still moving
+        } else {
+          scrollStuckCount++; // Scroll stuck
         }
 
         attempts++;
-        console.log(`[Custom Dropdown] Scroll attempt ${attempts}: unique options=${currentUniqueCount}, stable=${stableCount}`);
+        console.log(`[Custom Dropdown] Scroll attempt ${attempts}: unique=${currentUniqueCount}, stable=${stableCount}, scrollTop=${currentScrollTop}, stuck=${scrollStuckCount}`);
 
-        // Stop if no new options for 3 consecutive attempts
-        if (stableCount >= 3) {
-          console.log(`[Custom Dropdown] No new options for 3 attempts, stopping`);
+        // Stop conditions:
+        // 1. No new options for 5 attempts AND scroll is stuck (reached bottom)
+        // 2. Scroll stuck for 5 attempts (definitely at bottom)
+        if ((stableCount >= 5 && scrollStuckCount >= 2) || scrollStuckCount >= 5) {
+          console.log(`[Custom Dropdown] Stopping: stableCount=${stableCount}, scrollStuckCount=${scrollStuckCount}`);
           break;
         }
+
+        previousScrollTop = currentScrollTop;
 
         // Scroll down gradually
         scrollContainer.scrollTop += scrollStep;
@@ -1466,6 +1482,18 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       } else {
         console.log('[Gemini Filler] Second pass: no missed fields found.');
       }
+    }
+
+    // Close any open dropdowns before finishing
+    const openDropdowns = document.querySelectorAll('[role="listbox"]:not([hidden]), [role="menu"]:not([hidden])');
+    if (openDropdowns.length > 0) {
+      console.log(`[Gemini Filler] Closing ${openDropdowns.length} open dropdown(s)`);
+      openDropdowns.forEach(dropdown => {
+        const trigger = document.querySelector(`[aria-owns="${dropdown.id}"]`);
+        if (trigger) {
+          trigger.click();
+        }
+      });
     }
 
     // Show summary of missing fields if any (BEFORE return!)
