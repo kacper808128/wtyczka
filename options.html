@@ -12,6 +12,51 @@
     button { padding: 10px 15px; cursor: pointer; }
     #data-container { margin-top: 20px; }
     .data-row { display: flex; gap: 10px; margin-bottom: 10px; }
+
+    /* Learned questions styling */
+    .learned-questions-controls { margin: 15px 0; display: flex; gap: 10px; flex-wrap: wrap; }
+    .question-card {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 15px;
+      background: #f9f9f9;
+    }
+    .question-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+    .question-text { flex: 1; }
+    .confidence-badge {
+      padding: 4px 8px;
+      border-radius: 4px;
+      color: white;
+      font-size: 0.85em;
+      font-weight: bold;
+    }
+    .question-details {
+      font-size: 0.9em;
+      color: #666;
+      line-height: 1.8;
+    }
+    .question-details code {
+      background: #e8e8e8;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+    .question-actions {
+      margin-top: 10px;
+      display: flex;
+      gap: 10px;
+    }
+    .question-actions button {
+      padding: 6px 12px;
+      font-size: 0.9em;
+    }
   </style>
 </head>
 <body>
@@ -69,7 +114,6 @@
 
   <div id="questions-list" style="margin-top: 20px;"></div>
 
-  <script src="learning.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

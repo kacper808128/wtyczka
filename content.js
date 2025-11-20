@@ -499,14 +499,16 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 filled = true;
                 console.log(`[Gemini Filler] Custom dropdown: successfully clicked option "${bestMatch}"`);
 
-                // Capture for learning and add feedback button
-                try {
-                  const capturedHash = await captureQuestionBridge(element, answer);
-                  if (capturedHash && answerSource === 'ai') {
-                    addFeedbackButtonBridge(element, capturedHash);
+                // Capture for learning and add feedback button (only for AI answers)
+                if (answerSource === 'ai') {
+                  try {
+                    const capturedHash = await captureQuestionBridge(element, answer);
+                    if (capturedHash) {
+                      addFeedbackButtonBridge(element, capturedHash);
+                    }
+                  } catch (err) {
+                    console.warn('[Gemini Filler] Error capturing custom dropdown question:', err);
                   }
-                } catch (err) {
-                  console.warn('[Gemini Filler] Error capturing custom dropdown question:', err);
                 }
               } else {
                 console.warn(`[Gemini Filler] Custom dropdown: matched text "${bestMatch}" but element not found`);
