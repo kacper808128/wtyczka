@@ -623,17 +623,17 @@ function fillDatepicker(element, dateValue) {
 /**
  * Fill a Selectize.js dropdown
  * @param {HTMLElement} selectElement - The original SELECT element with .selectized class
- * @param {string} value - Value to select
- * @param {Array<string>} options - Available options
+ * @param {Object} userData - User data for AI
+ * @param {string} question - Question text for the field
  * @returns {Promise<boolean>} Success status
  */
-async function fillSelectize(selectElement, value, options) {
+async function fillSelectize(selectElement, userData, question) {
   try {
-    console.log(`[Selectize] Attempting to fill with value: "${value}"`);
+    console.log(`[Selectize] Attempting to fill for question: "${question}"`);
 
     // Validate inputs
-    if (!selectElement || !value) {
-      console.warn('[Selectize] Invalid selectElement or value');
+    if (!selectElement || !userData || !question) {
+      console.warn('[Selectize] Invalid selectElement, userData or question');
       return false;
     }
 
@@ -666,12 +666,28 @@ async function fillSelectize(selectElement, value, options) {
     const optionElements = Array.from(dropdown.querySelectorAll('.option'));
     console.log(`[Selectize] Found ${optionElements.length} options`);
 
-    // Fuzzy match value to options with validation
+    // Get option texts and ask AI WITH OPTIONS (so it can translate Polish → English)
     const optionTexts = optionElements.map(opt => opt && opt.textContent ? opt.textContent.trim() : '').filter(Boolean);
-    const matchedText = fuzzyMatch(value, optionTexts);
+    console.log(`[Selectize] Asking AI for answer with ${optionTexts.length} options`);
+
+    const result = await getAIResponse(question, userData, optionTexts);
+    const answer = result.answer;
+    const answerSource = result.source;
+
+    if (!answer || answer === '') {
+      console.warn(`[Selectize] No answer from AI for "${question}"`);
+      // Close dropdown
+      selectizeInput.blur();
+      return false;
+    }
+
+    console.log(`[Selectize] AI returned: "${answer}" (source: ${answerSource})`);
+
+    // Fuzzy match answer to options
+    const matchedText = fuzzyMatch(answer, optionTexts);
 
     if (!matchedText) {
-      console.warn(`[Selectize] No match found for "${value}" in options:`, optionTexts);
+      console.warn(`[Selectize] No match found for "${answer}" in options:`, optionTexts);
       // Close dropdown
       selectizeInput.blur();
       return false;
@@ -1177,8 +1193,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               console.warn(`[Gemini Filler] Failed to fill datepicker with: "${answer}"`);
             }
           } else if (metadata.type === 'selectize') {
-            // Handle Selectize.js dropdown
-            const success = await fillSelectize(element, answer, metadata.options);
+            // Handle Selectize.js dropdown - it handles AI internally
+            const success = await fillSelectize(element, userData, batchQuestions[i].question);
             if (success) {
               aChangeWasMade = true;
               filled = true;
@@ -1537,8 +1553,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             aChangeWasMade = true;
           }
         } else if (fieldMetadata.type === 'selectize') {
-          // Handle Selectize.js dropdown
-          const success = await fillSelectize(element, answer, fieldMetadata.options);
+          // Handle Selectize.js dropdown - it handles AI internally
+          const success = await fillSelectize(element, userData, question);
           if (success) {
             aChangeWasMade = true;
           }
