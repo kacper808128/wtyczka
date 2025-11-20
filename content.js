@@ -289,6 +289,7 @@ function detectFieldType(element) {
     element.getAttribute('role') === 'listbox',
     element.getAttribute('aria-haspopup') === 'listbox',
     element.getAttribute('aria-haspopup') === 'menu',
+    element.getAttribute('aria-haspopup') === 'dialog',  // Added: dialog-based dropdowns
     element.className && /select|dropdown|combobox|autocomplete/i.test(element.className),
     element.tagName === 'BUTTON' && element.getAttribute('aria-expanded') !== null
   ];
@@ -296,14 +297,30 @@ function detectFieldType(element) {
   if (dropdownIndicators.some(Boolean)) {
     metadata.type = 'custom-dropdown';
     metadata.isCustom = true;
+
     // Try to find options if dropdown is already open
-    const listbox = document.querySelector(`[role="listbox"][aria-labelledby="${element.id}"]`) ||
-                   document.querySelector(`[role="menu"][aria-labelledby="${element.id}"]`) ||
-                   element.nextElementSibling?.querySelector('[role="option"]')?.parentElement;
+    // First try using aria-controls for dialog-based dropdowns
+    const ariaControls = element.getAttribute('aria-controls');
+    let listbox = null;
+
+    if (ariaControls) {
+      const dialog = document.getElementById(ariaControls);
+      if (dialog) {
+        listbox = dialog;
+      }
+    }
+
+    // Fallback to other methods
+    if (!listbox) {
+      listbox = document.querySelector(`[role="listbox"][aria-labelledby="${element.id}"]`) ||
+                document.querySelector(`[role="menu"][aria-labelledby="${element.id}"]`) ||
+                element.nextElementSibling?.querySelector('[role="option"]')?.parentElement;
+    }
 
     if (listbox) {
       const optionElements = listbox.querySelectorAll('[role="option"], [role="menuitem"]');
       metadata.options = Array.from(optionElements).map(opt => opt.textContent.trim()).filter(Boolean);
+      console.log(`[Field Detection] Found ${metadata.options.length} options for custom dropdown "${element.id}"`);
     }
     return metadata;
   }
@@ -913,6 +930,40 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             console.log(`[Gemini Filler] Answer "${answer}" matches userData value, marking as mock`);
           } else {
             console.log(`[Gemini Filler] Answer "${answer}" does NOT match any userData value, marking as ai`);
+
+            // SPECIAL CASE: If answer is a date but doesn't match userData, check if userData has availability/start date
+            // and convert it properly (e.g., "trzy miesiące od teraz" → "2026-02-20")
+            const questionLower = batchQuestions[i].question.toLowerCase();
+            const isDateOrAvailability = metadata.type === 'datepicker' ||
+                                        questionLower.includes('dostępność') ||
+                                        questionLower.includes('availability') ||
+                                        questionLower.includes('kiedy') ||
+                                        questionLower.includes('start') ||
+                                        questionLower.includes('rozpocz') ||
+                                        questionLower.includes('data');
+
+            if (isDateOrAvailability && /^\d{4}-\d{2}-\d{2}$/.test(answer)) {
+              // Answer is a date, check if userData has a relative date phrase
+              const userDataStartDate = userData['Od kiedy mogę zacząć pracę'] ||
+                                       userData['startDate'] ||
+                                       userData['availability'] ||
+                                       userData['start'];
+
+              if (userDataStartDate && typeof userDataStartDate === 'string') {
+                const relativeDatePattern = /(od\s+)?teraz|natychmiast|immediately|miesiąc|miesięcy|miesiące|tydzień|tygodni|tygodnie|dzień|dni|rok|lata|lat|week|month|day|year/i;
+
+                if (relativeDatePattern.test(userDataStartDate)) {
+                  // userData has relative date - parse it properly using our helper
+                  console.log(`[Gemini Filler] Found relative date in userData: "${userDataStartDate}", re-processing...`);
+                  const mockAnswer = getMockAIResponse(batchQuestions[i].question, userData, metadata.optionsText);
+                  if (mockAnswer && mockAnswer !== answer) {
+                    console.log(`[Gemini Filler] Replacing AI date "${answer}" with correctly parsed date "${mockAnswer}" from userData`);
+                    answer = mockAnswer;
+                    answerSource = 'mock';
+                  }
+                }
+              }
+            }
           }
         }
 
