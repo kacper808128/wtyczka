@@ -325,6 +325,188 @@ function handleCvUpload(event) {
     reader.readAsDataURL(file);
 }
 
+// --- CV Analysis Functions ---
+
+function loadCvSettings() {
+    chrome.storage.local.get(['useCvData', 'cvAnalyzedData'], (result) => {
+        if (chrome.runtime.lastError) {
+            console.error('Error loading CV settings:', chrome.runtime.lastError);
+            return;
+        }
+
+        // Load toggle state (default: false)
+        const useCvData = result.useCvData || false;
+        document.getElementById('use-cv-data').checked = useCvData;
+
+        // Update UI based on analyzed data availability
+        if (result.cvAnalyzedData) {
+            document.getElementById('view-cv-data').disabled = false;
+            showCvAnalysisStatus(result.cvAnalyzedData);
+        }
+    });
+}
+
+function handleUseCvDataToggle(event) {
+    const useCvData = event.target.checked;
+    chrome.storage.local.set({ useCvData }, () => {
+        if (chrome.runtime.lastError) {
+            console.error('Error saving CV setting:', chrome.runtime.lastError);
+            statusEl.textContent = 'Błąd zapisu ustawień';
+            statusEl.style.color = 'red';
+            return;
+        }
+
+        statusEl.textContent = useCvData ?
+            'Wypełnianie z CV włączone' :
+            'Wypełnianie z CV wyłączone';
+        statusEl.style.color = 'green';
+        setTimeout(() => {
+            statusEl.textContent = '';
+            statusEl.style.color = '';
+        }, 2000);
+    });
+}
+
+async function analyzeCVData() {
+    const analyzeBtn = document.getElementById('analyze-cv');
+    const statusDiv = document.getElementById('cv-analysis-status');
+    const infoDiv = document.getElementById('cv-analysis-info');
+
+    // Check if CV file exists
+    chrome.storage.local.get('userCV', async (result) => {
+        if (!result.userCV || !result.userCV.dataUrl) {
+            infoDiv.textContent = '❌ Najpierw załącz plik CV powyżej';
+            infoDiv.style.color = 'red';
+            statusDiv.style.display = 'block';
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 3000);
+            return;
+        }
+
+        // Check if API key exists
+        const apiKeyResult = await new Promise(resolve => {
+            chrome.storage.sync.get('geminiApiKey', resolve);
+        });
+
+        if (!apiKeyResult.geminiApiKey || apiKeyResult.geminiApiKey === 'YOUR_API_KEY_HERE') {
+            infoDiv.textContent = '❌ Najpierw skonfiguruj klucz API Gemini';
+            infoDiv.style.color = 'red';
+            statusDiv.style.display = 'block';
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 3000);
+            return;
+        }
+
+        // Start analysis
+        analyzeBtn.disabled = true;
+        analyzeBtn.textContent = '⏳ Analizowanie...';
+        statusDiv.style.display = 'block';
+        infoDiv.innerHTML = '<div style="color: blue;">🔍 Analizuję CV za pomocą AI...</div>';
+
+        try {
+            // Call CV analysis function directly
+            const analyzedData = await analyzeCVWithAI(result.userCV);
+
+            if (analyzedData) {
+                showCvAnalysisStatus(analyzedData);
+                document.getElementById('view-cv-data').disabled = false;
+                infoDiv.innerHTML = `
+                    <div style="color: green;">✅ Analiza zakończona!</div>
+                    <div style="font-size: 0.9em; margin-top: 5px;">
+                        Znaleziono: ${analyzedData.experience?.length || 0} doświadczeń,
+                        ${analyzedData.skills?.length || 0} umiejętności,
+                        ${analyzedData.education?.length || 0} wykształceń
+                    </div>
+                `;
+            } else {
+                throw new Error('Nie udało się przeanalizować CV');
+            }
+        } catch (error) {
+            console.error('CV analysis error:', error);
+            infoDiv.innerHTML = `<div style="color: red;">❌ Błąd analizy: ${error.message}</div>`;
+        } finally {
+            analyzeBtn.disabled = false;
+            analyzeBtn.textContent = '🔍 Analizuj CV';
+        }
+    });
+}
+
+function showCvAnalysisStatus(cvData) {
+    const statusDiv = document.getElementById('cv-analysis-status');
+    const infoDiv = document.getElementById('cv-analysis-info');
+
+    const analyzedAt = cvData.analyzedAt ? new Date(cvData.analyzedAt).toLocaleString('pl-PL') : 'Nieznana';
+
+    infoDiv.innerHTML = `
+        <div style="color: green; margin-bottom: 8px;">✅ CV przeanalizowane</div>
+        <div style="font-size: 0.85em; color: #666;">
+            <strong>Ostatnia analiza:</strong> ${analyzedAt}<br>
+            <strong>Doświadczeń:</strong> ${cvData.experience?.length || 0}<br>
+            <strong>Umiejętności:</strong> ${cvData.skills?.length || 0}<br>
+            <strong>Wykształceń:</strong> ${cvData.education?.length || 0}<br>
+            <strong>Języków:</strong> ${cvData.languages?.length || 0}
+        </div>
+    `;
+    statusDiv.style.display = 'block';
+}
+
+function viewCVData() {
+    chrome.storage.local.get('cvAnalyzedData', (result) => {
+        if (!result.cvAnalyzedData) {
+            alert('Brak danych z CV. Najpierw przeanalizuj CV.');
+            return;
+        }
+
+        // Create modal with CV data
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        `;
+
+        const content = document.createElement('div');
+        content.style.cssText = `
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        `;
+
+        content.innerHTML = `
+            <h2 style="margin-top: 0;">Dane z CV</h2>
+            <pre style="background: #f5f5f5; padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 0.9em;">${JSON.stringify(result.cvAnalyzedData, null, 2)}</pre>
+            <button id="close-modal" style="margin-top: 15px; padding: 10px 20px;">Zamknij</button>
+        `;
+
+        modal.appendChild(content);
+        document.body.appendChild(modal);
+
+        document.getElementById('close-modal').addEventListener('click', () => {
+            modal.remove();
+        });
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+    });
+}
+
 
 // --- API Key Management ---
 
@@ -623,6 +805,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadApiKey();
     loadData();
     loadCvStatus();
+    loadCvSettings();
     displayLearnedQuestions();
 });
 addRowBtn.addEventListener('click', () => createDataRow());
@@ -645,3 +828,8 @@ document.getElementById('import-questions').addEventListener('click', () => {
 });
 document.getElementById('import-file').addEventListener('change', handleImport);
 document.getElementById('clear-questions').addEventListener('click', handleClear);
+
+// CV analysis event listeners
+document.getElementById('use-cv-data').addEventListener('change', handleUseCvDataToggle);
+document.getElementById('analyze-cv').addEventListener('click', analyzeCVData);
+document.getElementById('view-cv-data').addEventListener('click', viewCVData);
