@@ -497,11 +497,19 @@ async function displayLearnedQuestions(searchTerm = '') {
         <div><strong>Typ pola:</strong> ${q.field_type}</div>
       </div>
       <div class="question-actions">
-        <button onclick="editQuestion('${q.question_hash}')">✏️ Edytuj</button>
-        <button onclick="deleteQuestion('${q.question_hash}')">🗑️ Usuń</button>
+        <button class="edit-btn" data-hash="${q.question_hash}">✏️ Edytuj</button>
+        <button class="delete-btn" data-hash="${q.question_hash}">🗑️ Usuń</button>
       </div>
     </div>
   `).join('');
+
+  // Add event listeners after rendering
+  questionsContainer.querySelectorAll('.edit-btn').forEach(btn => {
+    btn.addEventListener('click', () => editQuestion(btn.dataset.hash));
+  });
+  questionsContainer.querySelectorAll('.delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => deleteQuestion(btn.dataset.hash));
+  });
 }
 
 function getConfidenceColor(confidence) {
@@ -552,9 +560,6 @@ async function editQuestion(questionHash) {
   }
 }
 
-// Make functions global so onclick can access them
-window.editQuestion = editQuestion;
-
 async function deleteQuestion(questionHash) {
   if (!confirm('Czy na pewno chcesz usunąć to pytanie?')) return;
 
@@ -567,9 +572,6 @@ async function deleteQuestion(questionHash) {
   statusEl.style.color = 'green';
   setTimeout(() => { statusEl.textContent = ''; statusEl.style.color = ''; }, 2000);
 }
-
-// Make functions global so onclick can access them
-window.deleteQuestion = deleteQuestion;
 
 async function handleExport() {
   await exportLearnedQuestions();
