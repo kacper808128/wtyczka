@@ -822,22 +822,15 @@ async function saveApplications(applications) {
   });
 }
 
-// Load and render applications
-async function loadApplications(filters = {}) {
+// Load and render applications in Kanban view
+async function loadApplications(searchText = '') {
   const applications = await getApplications();
 
-  // Apply filters
+  // Apply search filter
   let filtered = applications;
-
-  // Status filter
-  if (filters.status && filters.status !== 'all') {
-    filtered = filtered.filter(app => app.status === filters.status);
-  }
-
-  // Search filter
-  if (filters.search) {
-    const searchLower = filters.search.toLowerCase();
-    filtered = filtered.filter(app =>
+  if (searchText) {
+    const searchLower = searchText.toLowerCase();
+    filtered = applications.filter(app =>
       app.company.toLowerCase().includes(searchLower) ||
       app.job_title.toLowerCase().includes(searchLower) ||
       (app.location && app.location.toLowerCase().includes(searchLower)) ||
@@ -845,86 +838,90 @@ async function loadApplications(filters = {}) {
     );
   }
 
-  renderApplications(filtered);
-  updateStats(applications);
+  renderKanbanBoard(filtered);
+  updateKanbanCounts(filtered);
+  initializeDragAndDrop();
 }
 
-// Render applications list
-function renderApplications(applications) {
-  const listContainer = document.getElementById('applications-list');
+// Render Kanban board
+function renderKanbanBoard(applications) {
+  const statuses = ['applied', 'interviews', 'offer', 'accepted', 'rejected'];
 
-  if (applications.length === 0) {
-    listContainer.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-state-icon">📭</div>
-        <div style="font-size: 18px; font-weight: 500;">Brak aplikacji</div>
-        <div class="empty-subtitle">Twoje aplikacje o pracę pojawią się tutaj</div>
-      </div>
-    `;
-    return;
-  }
+  statuses.forEach(status => {
+    const column = document.getElementById(`kanban-${status}`);
+    if (!column) return;
 
-  listContainer.innerHTML = applications.map(app => `
-    <div class="application-card" data-id="${app.id}">
-      <div class="app-header">
-        <div>
-          <h3 class="app-title">${escapeHtml(app.job_title)}</h3>
-          <p class="app-company">${escapeHtml(app.company)}</p>
+    const statusApps = applications.filter(app => app.status === status);
+
+    if (statusApps.length === 0) {
+      column.innerHTML = `
+        <div class="empty-kanban">
+          Brak aplikacji
         </div>
-        <span class="status-badge status-${app.status}">${getStatusLabel(app.status)}</span>
-      </div>
+      `;
+      return;
+    }
 
-      <div class="app-details">
-        ${app.location ? `<div class="detail-item">📍 ${escapeHtml(app.location)}</div>` : ''}
-        ${app.salary ? `<div class="detail-item">💰 ${escapeHtml(app.salary)}</div>` : ''}
-        <div class="detail-item">📅 ${formatApplicationDate(app.applied_date)}</div>
-        ${app.source ? `<div class="detail-item">🌐 ${escapeHtml(app.source)}</div>` : ''}
+    column.innerHTML = statusApps.map(app => `
+      <div class="kanban-card" draggable="true" data-id="${app.id}">
+        <h4 class="kanban-card-title">${escapeHtml(app.job_title)}</h4>
+        <p class="kanban-card-company">${escapeHtml(app.company)}</p>
+        <div class="kanban-card-details">
+          ${app.location ? `<div class="kanban-card-detail">📍 ${escapeHtml(app.location)}</div>` : ''}
+          ${app.salary ? `<div class="kanban-card-detail">💰 ${escapeHtml(app.salary)}</div>` : ''}
+          <div class="kanban-card-detail">📅 ${formatApplicationDate(app.applied_date)}</div>
+        </div>
+        <div class="kanban-card-actions">
+          <button class="kanban-card-btn view-app" data-id="${app.id}">👁️</button>
+          <button class="kanban-card-btn edit-app" data-id="${app.id}">✏️</button>
+          <button class="kanban-card-btn delete-app" data-id="${app.id}">🗑️</button>
+        </div>
       </div>
+    `).join('');
 
-      <div class="app-actions">
-        <button class="btn-icon view-app" data-id="${app.id}">👁️ Szczegóły</button>
-        <button class="btn-icon edit-app" data-id="${app.id}">✏️ Edytuj</button>
-        <button class="btn-icon delete-app" data-id="${app.id}">🗑️ Usuń</button>
-      </div>
-    </div>
-  `).join('');
-
-  // Add event listeners
-  listContainer.querySelectorAll('.view-app').forEach(btn => {
-    btn.addEventListener('click', () => viewApplication(btn.dataset.id));
-  });
-  listContainer.querySelectorAll('.edit-app').forEach(btn => {
-    btn.addEventListener('click', () => editApplication(btn.dataset.id));
-  });
-  listContainer.querySelectorAll('.delete-app').forEach(btn => {
-    btn.addEventListener('click', () => deleteApplication(btn.dataset.id));
+    // Add event listeners
+    column.querySelectorAll('.view-app').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        viewApplication(btn.dataset.id);
+      });
+    });
+    column.querySelectorAll('.edit-app').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        editApplication(btn.dataset.id);
+      });
+    });
+    column.querySelectorAll('.delete-app').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteApplication(btn.dataset.id);
+      });
+    });
   });
 }
 
-// Update statistics
-function updateStats(applications) {
-  const total = applications.length;
-  const active = applications.filter(app =>
-    !['rejected', 'withdrawn'].includes(app.status)
-  ).length;
-  const interviews = applications.filter(app => app.status === 'interview').length;
-  const offers = applications.filter(app => app.status === 'offer').length;
+// Update Kanban column counts
+function updateKanbanCounts(applications) {
+  const statuses = ['applied', 'interviews', 'offer', 'accepted', 'rejected'];
 
-  document.getElementById('total-applications').textContent = total;
-  document.getElementById('active-applications').textContent = active;
-  document.getElementById('interviews').textContent = interviews;
-  document.getElementById('offers').textContent = offers;
+  statuses.forEach(status => {
+    const count = applications.filter(app => app.status === status).length;
+    const countEl = document.getElementById(`count-${status}`);
+    if (countEl) {
+      countEl.textContent = count;
+    }
+  });
 }
 
 // Get status label in Polish
 function getStatusLabel(status) {
   const labels = {
-    'applied': 'Aplikowano',
-    'screening': 'Screening',
-    'interview': 'Rozmowa',
+    'applied': 'Zaaplikowano',
+    'interviews': 'Rozmowy',
     'offer': 'Oferta',
-    'rejected': 'Odrzucone',
-    'withdrawn': 'Wycofane'
+    'accepted': 'Zaakceptowana oferta',
+    'rejected': 'Odrzucone'
   };
   return labels[status] || status;
 }
@@ -972,14 +969,93 @@ async function deleteApplication(appId) {
   const filtered = applications.filter(a => a.id !== appId);
   await saveApplications(filtered);
 
-  // Reload with current filters
-  const statusFilter = document.getElementById('status-filter').value;
+  // Reload with current search
   const searchText = document.getElementById('search-applications').value;
-  await loadApplications({ status: statusFilter, search: searchText });
+  await loadApplications(searchText);
 
   statusEl.textContent = 'Aplikacja usunięta!';
   statusEl.style.color = 'green';
   setTimeout(() => { statusEl.textContent = ''; statusEl.style.color = ''; }, 2000);
+}
+
+// Initialize drag and drop for Kanban
+function initializeDragAndDrop() {
+  const cards = document.querySelectorAll('.kanban-card');
+  const columns = document.querySelectorAll('.kanban-cards');
+
+  cards.forEach(card => {
+    card.addEventListener('dragstart', handleDragStart);
+    card.addEventListener('dragend', handleDragEnd);
+  });
+
+  columns.forEach(column => {
+    column.addEventListener('dragover', handleDragOver);
+    column.addEventListener('drop', handleDrop);
+    column.addEventListener('dragleave', handleDragLeave);
+  });
+}
+
+let draggedElement = null;
+
+function handleDragStart(e) {
+  draggedElement = this;
+  this.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/html', this.innerHTML);
+}
+
+function handleDragEnd(e) {
+  this.classList.remove('dragging');
+}
+
+function handleDragOver(e) {
+  if (e.preventDefault) {
+    e.preventDefault();
+  }
+  e.dataTransfer.dropEffect = 'move';
+  this.classList.add('drag-over');
+  return false;
+}
+
+function handleDragLeave(e) {
+  this.classList.remove('drag-over');
+}
+
+async function handleDrop(e) {
+  if (e.stopPropagation) {
+    e.stopPropagation();
+  }
+
+  this.classList.remove('drag-over');
+
+  if (draggedElement && draggedElement !== this) {
+    const appId = draggedElement.dataset.id;
+    const newStatus = this.dataset.status;
+
+    // Update application status
+    const applications = await getApplications();
+    const app = applications.find(a => a.id === appId);
+
+    if (app && app.status !== newStatus) {
+      const oldStatus = app.status;
+      app.status = newStatus;
+      app.updated_at = new Date().toISOString();
+
+      // Add timeline event
+      if (!app.timeline) app.timeline = [];
+      app.timeline.push({
+        date: new Date().toISOString(),
+        event: `Status zmieniony: ${getStatusLabel(oldStatus)} → ${getStatusLabel(newStatus)}`
+      });
+
+      // Save and reload
+      await saveApplications(applications);
+      const searchText = document.getElementById('search-applications').value;
+      await loadApplications(searchText);
+    }
+  }
+
+  return false;
 }
 
 // Show application modal (view or edit)
@@ -1043,12 +1119,11 @@ function showApplicationModal(app, isEdit) {
       <label style="display: block; margin-bottom: 5px; font-weight: 500;">Status:</label>
       <select id="modal-status" ${isEdit ? '' : 'disabled'}
         style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-        <option value="applied" ${app.status === 'applied' ? 'selected' : ''}>Aplikowano</option>
-        <option value="screening" ${app.status === 'screening' ? 'selected' : ''}>Screening</option>
-        <option value="interview" ${app.status === 'interview' ? 'selected' : ''}>Rozmowa</option>
+        <option value="applied" ${app.status === 'applied' ? 'selected' : ''}>Zaaplikowano</option>
+        <option value="interviews" ${app.status === 'interviews' ? 'selected' : ''}>Rozmowy</option>
         <option value="offer" ${app.status === 'offer' ? 'selected' : ''}>Oferta</option>
+        <option value="accepted" ${app.status === 'accepted' ? 'selected' : ''}>Zaakceptowana oferta</option>
         <option value="rejected" ${app.status === 'rejected' ? 'selected' : ''}>Odrzucone</option>
-        <option value="withdrawn" ${app.status === 'withdrawn' ? 'selected' : ''}>Wycofane</option>
       </select>
     </div>
 
@@ -1147,9 +1222,8 @@ function showApplicationModal(app, isEdit) {
         await saveApplications(applications);
 
         // Reload
-        const statusFilter = document.getElementById('status-filter').value;
         const searchText = document.getElementById('search-applications').value;
-        await loadApplications({ status: statusFilter, search: searchText });
+        await loadApplications(searchText);
 
         modal.remove();
         statusEl.textContent = 'Aplikacja zaktualizowana!';
@@ -1227,12 +1301,11 @@ function showAddApplicationModal() {
       <label style="display: block; margin-bottom: 5px; font-weight: 500;">Status:</label>
       <select id="new-status"
         style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-        <option value="applied" selected>Aplikowano</option>
-        <option value="screening">Screening</option>
-        <option value="interview">Rozmowa</option>
+        <option value="applied" selected>Zaaplikowano</option>
+        <option value="interviews">Rozmowy</option>
         <option value="offer">Oferta</option>
+        <option value="accepted">Zaakceptowana oferta</option>
         <option value="rejected">Odrzucone</option>
-        <option value="withdrawn">Wycofane</option>
       </select>
     </div>
 
@@ -1308,9 +1381,8 @@ function showAddApplicationModal() {
     await saveApplications(applications);
 
     // Reload
-    const statusFilter = document.getElementById('status-filter').value;
     const searchText = document.getElementById('search-applications').value;
-    await loadApplications({ status: statusFilter, search: searchText });
+    await loadApplications(searchText);
 
     modal.remove();
     statusEl.textContent = 'Aplikacja dodana!';
@@ -1384,12 +1456,6 @@ document.getElementById('view-cv-data').addEventListener('click', viewCVData);
 
 // Application Tracker event listeners
 document.getElementById('add-application-btn').addEventListener('click', showAddApplicationModal);
-document.getElementById('status-filter').addEventListener('change', () => {
-  const statusFilter = document.getElementById('status-filter').value;
-  const searchText = document.getElementById('search-applications').value;
-  loadApplications({ status: statusFilter, search: searchText });
-});
 document.getElementById('search-applications').addEventListener('input', (e) => {
-  const statusFilter = document.getElementById('status-filter').value;
-  loadApplications({ status: statusFilter, search: e.target.value });
+  loadApplications(e.target.value);
 });
