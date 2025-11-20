@@ -152,7 +152,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         try {
           await fillFormWithAI(data);
           showSuccessOverlay();
-          setTimeout(hideOverlay, 2000);
+
+          // Only auto-hide if not on recruitment site (recruitment sites show tracker button)
+          if (!checkIfRecruitmentSite()) {
+            setTimeout(hideOverlay, 2000);
+          }
+
           sendResponse({ status: "success" });
         } catch (error) {
           console.error('[Gemini Filler] Error filling form:', error);
@@ -1592,29 +1597,52 @@ function showSuccessOverlay() {
         <p>Gotowe!</p>
         <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
           <p style="font-size: 0.9em; margin-bottom: 10px;">Czy dodać tę aplikację do trackera?</p>
-          <button id="add-to-tracker-btn" style="
-            padding: 8px 16px;
-            background: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-weight: 500;
-            font-size: 0.9em;
-          ">
-            📋 Dodaj do trackera
-          </button>
+          <div style="display: flex; gap: 10px;">
+            <button id="add-to-tracker-btn" style="
+              flex: 1;
+              padding: 8px 16px;
+              background: #4CAF50;
+              color: white;
+              border: none;
+              border-radius: 4px;
+              cursor: pointer;
+              font-weight: 500;
+              font-size: 0.9em;
+            ">
+              📋 Dodaj do trackera
+            </button>
+            <button id="skip-tracker-btn" style="
+              flex: 1;
+              padding: 8px 16px;
+              background: #999;
+              color: white;
+              border: none;
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 0.9em;
+            ">
+              Pomiń
+            </button>
+          </div>
         </div>
       `;
 
-      // Add event listener for the button
+      // Add event listeners for the buttons
       setTimeout(() => {
         const addBtn = document.getElementById('add-to-tracker-btn');
+        const skipBtn = document.getElementById('skip-tracker-btn');
+
         if (addBtn) {
           addBtn.addEventListener('click', () => {
             hideOverlay();
             const jobInfo = extractJobInfoFromPage();
             showAddApplicationModalFromContent(jobInfo);
+          });
+        }
+
+        if (skipBtn) {
+          skipBtn.addEventListener('click', () => {
+            hideOverlay();
           });
         }
       }, 100);
