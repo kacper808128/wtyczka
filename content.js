@@ -937,14 +937,20 @@ function findBestMatch(answer, options) {
   // Try to translate Polish country names to English
   const lowerAnswer = answer.toLowerCase().trim();
   const translatedAnswer = countryTranslations[lowerAnswer] || answer;
+  const wasTranslated = translatedAnswer !== answer;
 
   // Normalize answer by removing special chars for better matching
   const normalizedAnswer = translatedAnswer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
   const answerWords = normalizedAnswer.split(/\s+/).filter(w => w.length > 0);
 
   // PASS 1: Look for exact match (highest priority)
+  // Try both translated and original if translation happened
   for (const optionText of options) {
     if (optionText.toLowerCase() === translatedAnswer.toLowerCase()) {
+      return optionText;
+    }
+    // If translation occurred, also try original answer
+    if (wasTranslated && optionText.toLowerCase() === lowerAnswer) {
       return optionText;
     }
   }
@@ -955,9 +961,15 @@ function findBestMatch(answer, options) {
     const lowerOption = optionText.toLowerCase();
     const lowerTranslatedAnswer = translatedAnswer.toLowerCase();
 
-    // Exact substring match (answer is in option OR option is in answer)
+    // Try translated answer
     if (lowerOption.includes(lowerTranslatedAnswer) || lowerTranslatedAnswer.includes(lowerOption)) {
-      // Prefer shorter matches (more specific)
+      if (!substringMatch || optionText.length < substringMatch.length) {
+        substringMatch = optionText;
+      }
+    }
+
+    // If translation occurred, also try original
+    if (wasTranslated && (lowerOption.includes(lowerAnswer) || lowerAnswer.includes(lowerOption))) {
       if (!substringMatch || optionText.length < substringMatch.length) {
         substringMatch = optionText;
       }
@@ -972,12 +984,22 @@ function findBestMatch(answer, options) {
   let bestMatch = null;
   let maxScore = 0;
 
+  // Prepare original answer words if translation occurred
+  const originalNormalized = wasTranslated ? lowerAnswer.replace(/[^\w\s]/g, ' ').trim() : null;
+  const originalWords = wasTranslated ? originalNormalized.split(/\s+/).filter(w => w.length > 0) : null;
+
   for (const optionText of options) {
     const normalizedOption = optionText.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
     const optionWords = normalizedOption.split(/\s+/).filter(w => w.length > 0);
 
-    // Count matching words
-    const score = answerWords.filter(word => optionWords.includes(word)).length;
+    // Count matching words with translated answer
+    let score = answerWords.filter(word => optionWords.includes(word)).length;
+
+    // If translation occurred, also try original and use better score
+    if (wasTranslated && originalWords) {
+      const originalScore = originalWords.filter(word => optionWords.includes(word)).length;
+      score = Math.max(score, originalScore);
+    }
 
     if (score > maxScore) {
       maxScore = score;
