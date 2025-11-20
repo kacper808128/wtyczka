@@ -613,6 +613,19 @@ function getMockAIResponse(question, userData, options) {
     answer = findUserDataValue(['startDate', 'availability', 'start', 'kiedy', 'od kiedy', 'rozpoczęcie', 'dostępność']) || '';
   } else if (lowerQuestion.includes('salary') || lowerQuestion.includes('wynagrodzenie') || lowerQuestion.includes('pensja')) {
     answer = findUserDataValue(['salary', 'wynagrodzenie', 'expectedSalary', 'pensja', 'oczekiwane wynagrodzenie']) || '';
+  } else if (lowerQuestion.includes('work permit') || lowerQuestion.includes('work authorization') ||
+             lowerQuestion.includes('right to work') || lowerQuestion.includes('work visa') ||
+             lowerQuestion.includes('prawo do pracy') || lowerQuestion.includes('zezwolenie na pracę') ||
+             lowerQuestion.includes('autoryzacja pracy')) {
+    // MOVED UP: More specific than 'country' - must come first!
+    // For work permit questions - check if we have specific data, otherwise default to No
+    answer = findUserDataValue(['work permit', 'prawo do pracy', 'zezwolenie', 'work authorization']) || '';
+    if (!answer) {
+      // If no specific work permit data, default to No (conservative approach)
+      return findInOptions('No', options) || 'No';
+    }
+  } else if (lowerQuestion.includes('work mode') || lowerQuestion.includes('tryb pracy') || lowerQuestion.includes('remote')) {
+    answer = findUserDataValue(['workMode', 'tryb pracy', 'work mode', 'remote', 'hybrid']) || '';
   } else if (lowerQuestion.includes('location') || lowerQuestion.includes('miasto') || lowerQuestion.includes('lokalizacja') || lowerQuestion.includes('city')) {
     answer = findUserDataValue(['location', 'city', 'miasto', 'lokalizacja']) || '';
   } else if (lowerQuestion.includes('address') || lowerQuestion.includes('adres')) {
@@ -637,18 +650,6 @@ function getMockAIResponse(question, userData, options) {
     answer = findUserDataValue(['skills', 'skill', 'umiejętności', 'technologie']) || '';
   } else if (lowerQuestion.includes('contract') || lowerQuestion.includes('umowa')) {
     answer = findUserDataValue(['contract', 'umowa', 'typ umowy']) || '';
-  } else if (lowerQuestion.includes('work mode') || lowerQuestion.includes('tryb pracy') || lowerQuestion.includes('remote')) {
-    answer = findUserDataValue(['workMode', 'tryb pracy', 'work mode', 'remote', 'hybrid']) || '';
-  } else if (lowerQuestion.includes('work permit') || lowerQuestion.includes('work authorization') ||
-             lowerQuestion.includes('right to work') || lowerQuestion.includes('work visa') ||
-             lowerQuestion.includes('prawo do pracy') || lowerQuestion.includes('zezwolenie na pracę') ||
-             lowerQuestion.includes('autoryzacja pracy')) {
-    // For work permit questions - check if we have specific data, otherwise default to Yes
-    answer = findUserDataValue(['work permit', 'prawo do pracy', 'zezwolenie', 'work authorization']) || '';
-    if (!answer) {
-      // If no specific work permit data, default to Yes (assume user can work)
-      return findInOptions('Yes', options) || 'Yes';
-    }
   } else if (lowerQuestion.includes('notification') || lowerQuestion.includes('powiadomienia')) {
     // For notifications - default to Yes
     return findInOptions('Yes', options) || 'Yes';
