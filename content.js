@@ -153,10 +153,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           await fillFormWithAI(data);
           showSuccessOverlay();
 
-          // Only auto-hide if not on recruitment site (recruitment sites show tracker button)
-          if (!checkIfRecruitmentSite()) {
-            setTimeout(hideOverlay, 2000);
-          }
+          // Modal will stay visible until user clicks "Dodaj do trackera" or "Pomiń"
+          // No auto-hide for success overlay
 
           sendResponse({ status: "success" });
         } catch (error) {
@@ -1586,112 +1584,67 @@ function showOverlay(text) {
 }
 
 function showSuccessOverlay() {
-  console.log('[Tracker] showSuccessOverlay called');
   const modal = document.getElementById('gemini-filler-modal');
-  console.log('[Tracker] Modal element:', modal);
   if (modal) {
-    // Check if we're on a recruitment site
-    const isRecruitmentSite = checkIfRecruitmentSite();
-    console.log('[Tracker] isRecruitmentSite:', isRecruitmentSite);
-    console.log('[Tracker] Current URL:', window.location.href);
-
-    if (isRecruitmentSite) {
-      console.log('[Tracker] Showing recruitment site version with tracker prompt');
-      modal.innerHTML = `
-        <div class="checkmark">✓</div>
-        <p>Gotowe!</p>
-        <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
-          <p style="font-size: 0.9em; margin-bottom: 10px;">Czy dodać tę aplikację do trackera?</p>
-          <div style="display: flex; gap: 10px;">
-            <button id="add-to-tracker-btn" style="
-              flex: 1;
-              padding: 8px 16px;
-              background: #4CAF50;
-              color: white;
-              border: none;
-              border-radius: 4px;
-              cursor: pointer;
-              font-weight: 500;
-              font-size: 0.9em;
-            ">
-              📋 Dodaj do trackera
-            </button>
-            <button id="skip-tracker-btn" style="
-              flex: 1;
-              padding: 8px 16px;
-              background: #999;
-              color: white;
-              border: none;
-              border-radius: 4px;
-              cursor: pointer;
-              font-size: 0.9em;
-            ">
-              Pomiń
-            </button>
-          </div>
+    // Always show tracker prompt after form fill
+    // User can click "Pomiń" if they don't want to add to tracker
+    modal.innerHTML = `
+      <div class="checkmark">✓</div>
+      <p>Gotowe!</p>
+      <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #e0e0e0;">
+        <p style="font-size: 0.9em; margin-bottom: 10px;">Czy dodać tę aplikację do trackera?</p>
+        <div style="display: flex; gap: 10px;">
+          <button id="add-to-tracker-btn" style="
+            flex: 1;
+            padding: 8px 16px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 0.9em;
+          ">
+            📋 Dodaj do trackera
+          </button>
+          <button id="skip-tracker-btn" style="
+            flex: 1;
+            padding: 8px 16px;
+            background: #999;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+          ">
+            Pomiń
+          </button>
         </div>
-      `;
+      </div>
+    `;
 
-      // Add event listeners for the buttons
-      setTimeout(() => {
-        const addBtn = document.getElementById('add-to-tracker-btn');
-        const skipBtn = document.getElementById('skip-tracker-btn');
+    // Add event listeners for the buttons
+    setTimeout(() => {
+      const addBtn = document.getElementById('add-to-tracker-btn');
+      const skipBtn = document.getElementById('skip-tracker-btn');
 
-        if (addBtn) {
-          addBtn.addEventListener('click', () => {
-            hideOverlay();
-            const jobInfo = extractJobInfoFromPage();
-            showAddApplicationModalFromContent(jobInfo);
-          });
-        }
+      if (addBtn) {
+        addBtn.addEventListener('click', () => {
+          hideOverlay();
+          const jobInfo = extractJobInfoFromPage();
+          showAddApplicationModalFromContent(jobInfo);
+        });
+      }
 
-        if (skipBtn) {
-          skipBtn.addEventListener('click', () => {
-            hideOverlay();
-          });
-        }
-      }, 100);
-    } else {
-      console.log('[Tracker] Showing regular version (not recruitment site)');
-      modal.innerHTML = `
-        <div class="checkmark">✓</div>
-        <p>Gotowe!</p>
-      `;
-    }
+      if (skipBtn) {
+        skipBtn.addEventListener('click', () => {
+          hideOverlay();
+        });
+      }
+    }, 100);
   } else {
     console.log('[Tracker] Modal element not found!');
   }
-}
-
-// Helper function to check if on recruitment site
-function checkIfRecruitmentSite() {
-  const url = window.location.href.toLowerCase();
-  const hostname = window.location.hostname.toLowerCase();
-
-  console.log('[Tracker] checkIfRecruitmentSite - URL:', url);
-  console.log('[Tracker] checkIfRecruitmentSite - Hostname:', hostname);
-
-  const jobSites = [
-    'linkedin.com/jobs',
-    'pracuj.pl',
-    'nofluffjobs.com',
-    'justjoin.it',
-    'indeed.com',
-    'glassdoor.com',
-    'greenhouse.io',
-    'workable.com',
-    'lever.co',
-    'jobvite.com',
-    'smartrecruiters.com',
-    'breezy.hr',
-    'bamboohr.com',
-    'recruitee.com'
-  ];
-
-  const isJobSite = jobSites.some(site => url.includes(site) || hostname.includes(site));
-  console.log('[Tracker] checkIfRecruitmentSite - Result:', isJobSite);
-
-  return isJobSite;
 }
 
 // Extract job info from current page
@@ -1962,37 +1915,4 @@ function hideOverlay() {
 }
 
 // ==================== Application Tracker ====================
-
-// Detect recruitment form submission
-function detectJobApplication() {
-  // Listen for form submissions
-  document.addEventListener('submit', (event) => {
-    // Only track if it looks like a recruitment site
-    if (!checkIfRecruitmentSite()) {
-      return;
-    }
-
-    console.log('[Application Tracker] Form submission detected on recruitment site');
-
-    // Extract job info and show modal
-    const jobInfo = extractJobInfoFromPage();
-
-    if (jobInfo.job_title || jobInfo.company) {
-      // Small delay to ensure form is submitted first
-      setTimeout(() => {
-        showAddApplicationModalFromContent(jobInfo);
-      }, 500);
-    } else {
-      console.log('[Application Tracker] Could not extract enough job information');
-    }
-  }, true);
-
-  console.log('[Application Tracker] Form submission detection initialized');
-}
-
-// Initialize application tracking
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', detectJobApplication);
-} else {
-  detectJobApplication();
-}
+// Tracker prompt is now shown directly in showSuccessOverlay() after form fill
