@@ -511,6 +511,7 @@ function getMockAIResponse(question, userData, options) {
     }
 
     // PASS 2: Try substring match (prefer shorter/more specific)
+    // Require minimum 4 characters to avoid false positives with short fragments
     let substringMatch = null;
     for (const option of options) {
       // Skip non-string options
@@ -519,7 +520,11 @@ function getMockAIResponse(question, userData, options) {
       const lowerOption = option.toLowerCase();
       const lowerTranslatedAnswer = translatedAnswer.toLowerCase();
 
-      if (lowerOption.includes(lowerTranslatedAnswer) || lowerTranslatedAnswer.includes(lowerOption)) {
+      // Only match if substring is at least 4 characters long
+      const matches = (lowerTranslatedAnswer.length >= 4 && lowerOption.includes(lowerTranslatedAnswer)) ||
+                     (lowerOption.length >= 4 && lowerTranslatedAnswer.includes(lowerOption));
+
+      if (matches) {
         if (!substringMatch || option.length < substringMatch.length) {
           substringMatch = option;
         }
