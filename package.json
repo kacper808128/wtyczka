@@ -1,0 +1,26 @@
+{
+  "name": "wtyczka-chrome-extension",
+  "version": "1.0.0",
+  "description": "Automated form filling Chrome extension with AI - Test Suite",
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
+  },
+  "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "jsdom",
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
+    "collectCoverageFrom": [
+      "content.js",
+      "ai.js",
+      "learning.js"
+    ]
+  }
+}

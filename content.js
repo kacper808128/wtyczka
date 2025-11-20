@@ -5,6 +5,126 @@ link.type = 'text/css';
 link.href = chrome.runtime.getURL('styles.css');
 document.head.appendChild(link);
 
+// Inject learning.js
+const script = document.createElement('script');
+script.src = chrome.runtime.getURL('learning.js');
+document.head.appendChild(script);
+
+// ==================== Learning System Bridge ====================
+// Content scripts run in isolated world and can't access page's window directly
+// These helpers use custom DOM events to communicate with learning.js (page context)
+
+let requestIdCounter = 0;
+
+async function captureQuestionBridge(element, answer) {
+  return new Promise((resolve) => {
+    const requestId = `req_${Date.now()}_${requestIdCounter++}`;
+
+    // Extract question text and field info from element (can't pass DOM element through event)
+    const questionText = getQuestionForInput(element);
+    const fieldType = element.type || element.tagName.toLowerCase();
+    const fieldName = element.name || '';
+    const fieldId = element.id || '';
+
+    const responseHandler = (event) => {
+      if (event.detail.requestId === requestId) {
+        clearTimeout(timeoutId);  // Clear timeout on success
+        document.removeEventListener('learning:captureQuestionResponse', responseHandler);
+        resolve(event.detail.hash);
+      }
+    };
+
+    document.addEventListener('learning:captureQuestionResponse', responseHandler);
+
+    // Timeout after 5 seconds
+    const timeoutId = setTimeout(() => {
+      document.removeEventListener('learning:captureQuestionResponse', responseHandler);
+      console.warn('[Learning Bridge] captureQuestion timeout');
+      resolve(null);
+    }, 5000);
+
+    // Pass data, not DOM element (can't cross isolated world boundary)
+    document.dispatchEvent(new CustomEvent('learning:captureQuestion', {
+      detail: { questionText, answer, fieldType, fieldName, fieldId, requestId }
+    }));
+  });
+}
+
+async function getSuggestionForFieldBridge(element) {
+  return new Promise((resolve) => {
+    const requestId = `req_${Date.now()}_${requestIdCounter++}`;
+
+    // Extract question text from element (can't pass DOM element through event)
+    const questionText = getQuestionForInput(element);
+
+    const responseHandler = (event) => {
+      if (event.detail.requestId === requestId) {
+        clearTimeout(timeoutId);  // Clear timeout on success
+        document.removeEventListener('learning:getSuggestionResponse', responseHandler);
+        resolve(event.detail.suggestion);
+      }
+    };
+
+    document.addEventListener('learning:getSuggestionResponse', responseHandler);
+
+    // Timeout after 5 seconds
+    const timeoutId = setTimeout(() => {
+      document.removeEventListener('learning:getSuggestionResponse', responseHandler);
+      console.warn('[Learning Bridge] getSuggestion timeout');
+      resolve(null);
+    }, 5000);
+
+    // Pass data, not DOM element
+    document.dispatchEvent(new CustomEvent('learning:getSuggestion', {
+      detail: { questionText, requestId }
+    }));
+  });
+}
+
+function addFeedbackButtonBridge(element, questionHash) {
+  // For feedback button, we need to store reference to element
+  // Store it with a unique ID that can be used to find it later
+  const elementId = `learning_feedback_${Date.now()}_${requestIdCounter++}`;
+  element.setAttribute('data-learning-feedback-id', elementId);
+
+  document.dispatchEvent(new CustomEvent('learning:addFeedbackButton', {
+    detail: { elementId, questionHash }
+  }));
+}
+
+// Storage bridge - page context can't access chrome.storage, so we handle it here
+document.addEventListener('learning:storageGet', (event) => {
+  console.log('[Storage Bridge] 📥 Received storageGet request:', event.detail);
+  const { key, requestId } = event.detail;
+
+  chrome.storage.local.get([key], (result) => {
+    console.log('[Storage Bridge] 📤 Got data from storage, sending response for requestId:', requestId, 'data length:', result[key]?.length);
+
+    document.dispatchEvent(new CustomEvent('learning:storageGetResponse', {
+      detail: { data: result[key], requestId }
+    }));
+
+    console.log('[Storage Bridge] ✅ Response event dispatched for requestId:', requestId);
+  });
+});
+
+document.addEventListener('learning:storageSet', (event) => {
+  console.log('[Storage Bridge] 📥 Received storageSet request:', event.detail.requestId, 'key:', event.detail.key);
+  const { key, value, requestId } = event.detail;
+
+  chrome.storage.local.set({ [key]: value }, () => {
+    console.log('[Storage Bridge] 📤 Data saved to storage, sending response for requestId:', requestId);
+
+    document.dispatchEvent(new CustomEvent('learning:storageSetResponse', {
+      detail: { success: true, requestId }
+    }));
+
+    console.log('[Storage Bridge] ✅ Response event dispatched for requestId:', requestId);
+  });
+});
+
+console.log('[Learning Bridge] Event-based communication helpers initialized');
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "fill_form") {
     showOverlay("Wypełnianie w toku...");
@@ -47,7 +167,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-async function fillFormWithAI(userData, processedElements = new Set(), depth = 0) {
+async function fillFormWithAI(userData, processedElements = new Set(), depth = 0, isRetry = false, missingFields = null) {
+  console.log(`[Gemini Filler] fillFormWithAI called: depth=${depth}, isRetry=${isRetry}, missingFields=${missingFields ? `array[${missingFields.length}]` : 'null'}`);
+
+  // Helper function to check if answer is a placeholder or invalid response (AI sometimes returns these)
+  const isPlaceholder = (text) => {
+    if (!text) return true;
+    const trimmed = text.trim();
+    // Check for placeholder patterns like "-- Wybierz --", "Select", etc.
+    const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
+    if (placeholderPatterns.test(trimmed)) return true;
+    // Check for AI's "I don't know" type responses in parentheses
+    if (trimmed.startsWith('(') && trimmed.endsWith(')')) return true;
+    // Check for AI's "I don't know" type responses
+    const invalidResponsePatterns = /(not available|please provide|information is not|cannot be answered|cannot be determined|brak danych|nie ma informacji|requires.*free-text|provided data)/i;
+    if (invalidResponsePatterns.test(trimmed)) return true;
+    return false;
+  };
+
+  // Track missing fields only on first call (depth 0)
+  if (depth === 0 && !missingFields) {
+    missingFields = [];
+    console.log('[Gemini Filler] Initialized missingFields array');
+  }
+
   // Prevent infinite recursion
   const MAX_DEPTH = 10;
   if (depth >= MAX_DEPTH) {
@@ -67,6 +210,417 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
   }
 
   let aChangeWasMade = false;
+
+  // BATCH PROCESSING - only on first call (depth 0, !isRetry)
+  // This processes all visible fields at once for efficiency
+  if (depth === 0 && !isRetry) {
+    console.log('[Gemini Filler] Starting batch processing mode...');
+
+    const batchQuestions = [];
+    const batchElements = [];
+    const batchMetadata = []; // Store element metadata
+
+    // Collect all questions
+    for (const element of formElements) {
+      if (processedElements.has(element)) continue;
+      if (!document.contains(element)) continue;
+
+      // Skip special types that need individual handling
+      if (element.type === 'file' || element.type === 'radio' || element.type === 'checkbox') {
+        continue;
+      }
+
+      const question = getQuestionForInput(element);
+      if (!question) continue;
+
+      let optionsText = null;
+      try {
+        if (element.tagName === 'SELECT') {
+          // Filter out placeholder options (like "-- Wybierz --", "Select", etc.)
+          const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
+          optionsText = Array.from(element.options)
+            .map(o => o.text)
+            .filter(t => t.trim() && !placeholderPatterns.test(t.trim()));
+        } else if (element.getAttribute('role') === 'radiogroup') {
+          const radioButtons = element.querySelectorAll('button[role="radio"]');
+          optionsText = Array.from(radioButtons).map(rb => {
+            const label = document.querySelector(`label[for="${rb.id}"]`) || rb.closest('div')?.querySelector('label');
+            return label ? label.textContent.trim() : rb.getAttribute('aria-label') || '';
+          }).filter(t => t);
+        } else if (element.tagName === 'BUTTON' && element.getAttribute('aria-haspopup') === 'dialog') {
+          // Custom dropdown - we'll handle these individually later
+          continue;
+        }
+      } catch (error) {
+        console.warn('[Gemini Filler] Error extracting options:', error);
+        continue;
+      }
+
+      batchQuestions.push({
+        question: question,
+        options: optionsText
+      });
+      batchElements.push(element);
+      batchMetadata.push({ optionsText });
+    }
+
+    if (batchQuestions.length > 0) {
+      console.log(`[Gemini Filler] Collected ${batchQuestions.length} questions for batch processing`);
+
+      // Get batch answers from AI
+      const batchAnswers = await getBatchAIResponse(batchQuestions, userData);
+
+      // Fill all fields from batch
+      for (let i = 0; i < batchElements.length; i++) {
+        const element = batchElements[i];
+        let answer = batchAnswers[i];
+        const metadata = batchMetadata[i];
+        let answerSource = null; // Track if answer is from 'ai' or 'mock'
+
+        // If batch AI returned empty or placeholder, try mock response as fallback
+        if (!answer || answer === '' || isPlaceholder(answer)) {
+          if (isPlaceholder(answer)) {
+            console.log(`[Gemini Filler] Batch AI returned placeholder "${answer}" for: "${batchQuestions[i].question}", trying mock fallback...`);
+          } else {
+            console.log(`[Gemini Filler] No batch answer for: "${batchQuestions[i].question}", trying mock fallback...`);
+          }
+
+          const mockAnswer = getMockAIResponse(batchQuestions[i].question, userData, metadata.optionsText);
+          if (mockAnswer && !isPlaceholder(mockAnswer)) {
+            answer = mockAnswer;
+            answerSource = 'mock';
+            console.log(`[Gemini Filler] Mock fallback found: "${answer}"`);
+          } else {
+            console.log(`[Gemini Filler] No mock fallback either, will retry in second pass`);
+            // Track this as potentially missing data
+            if (missingFields && depth === 0) {
+              console.log(`[Gemini Filler] Adding to missingFields: "${batchQuestions[i].question}" (depth=${depth}, missingFields.length before=${missingFields.length})`);
+              missingFields.push({
+                question: batchQuestions[i].question,
+                reason: 'Brak danych w bazie wiedzy',
+                element: element
+              });
+              console.log(`[Gemini Filler] missingFields.length after=${missingFields.length}`);
+            } else {
+              console.log(`[Gemini Filler] NOT adding to missingFields: missingFields=${missingFields ? 'exists' : 'null'}, depth=${depth}`);
+            }
+            continue;  // Don't add to processedElements - let second pass retry with full AI
+          }
+        } else {
+          // Answer came from batch AI - check if it's actually from userData
+          // Check both exact match and partial match (e.g., "Wyższe" in userData matches "Wyższe - magister" from SELECT)
+          const answerLower = answer.toLowerCase();
+
+          // Debug: log all userData values for this check
+          console.log(`[Gemini Filler] Checking if answer "${answer}" matches any userData value...`);
+          const userDataValues = Object.entries(userData).map(([key, val]) => {
+            if (!val) return null;
+            return { key, value: val, valueLower: val.toString().toLowerCase() };
+          }).filter(Boolean);
+          console.log(`[Gemini Filler] userData values to check:`, userDataValues.map(v => `${v.key}="${v.value}"`).join(', '));
+
+          const isFromUserData = Object.values(userData).some(val => {
+            if (!val) return false;
+            const valStr = val.toString().toLowerCase();
+            // Exact match OR userData value is contained in answer OR answer is contained in userData value
+            // Use >= 3 instead of > 3 to catch values like "+48" (exactly 3 chars)
+            const matches = valStr === answerLower ||
+                   (valStr.length >= 3 && answerLower.includes(valStr)) ||
+                   (answerLower.length >= 3 && valStr.includes(answerLower));
+
+            if (matches) {
+              console.log(`[Gemini Filler] ✓ Match found! answer "${answer}" matches userData value "${val}"`);
+            }
+            return matches;
+          });
+
+          answerSource = isFromUserData ? 'mock' : 'ai';
+          if (isFromUserData) {
+            console.log(`[Gemini Filler] Answer "${answer}" matches userData value, marking as mock`);
+          } else {
+            console.log(`[Gemini Filler] Answer "${answer}" does NOT match any userData value, marking as ai`);
+          }
+        }
+
+        try {
+          console.log(`[Gemini Filler] Batch filling: "${batchQuestions[i].question}" = "${answer}"`);
+
+          let filled = false;  // Track if we actually filled the field
+
+          if (element.tagName === 'SELECT') {
+            const bestMatchText = findBestMatch(answer, metadata.optionsText);
+            console.log(`[Gemini Filler] findBestMatch("${answer}") -> "${bestMatchText}" from ${metadata.optionsText?.length || 0} options`);
+            if (bestMatchText) {
+              const bestMatchOption = Array.from(element.options).find(o => o.text === bestMatchText);
+              if (bestMatchOption) {
+                const oldValue = element.value;
+                element.value = bestMatchOption.value;
+                element.selectedIndex = bestMatchOption.index;
+                console.log(`[Gemini Filler] SELECT: set value from "${oldValue}" to "${element.value}", selectedIndex=${element.selectedIndex}, text="${bestMatchOption.text}"`);
+
+                // Add delay before events to prevent stack overflow
+                await new Promise(resolve => setTimeout(resolve, 200));
+                const inputEvent = new Event('input', { bubbles: true });
+                inputEvent._autofilledByExtension = true;
+                const changeEvent = new Event('change', { bubbles: true });
+                changeEvent._autofilledByExtension = true;
+                element.dispatchEvent(inputEvent);
+                element.dispatchEvent(changeEvent);
+
+                // Verify value stuck after events
+                await new Promise(resolve => setTimeout(resolve, 100));
+                console.log(`[Gemini Filler] SELECT: dispatched input+change events, current value="${element.value}", selectedIndex=${element.selectedIndex}`);
+
+                // Double-check: read selected option text
+                const currentSelectedOption = element.options[element.selectedIndex];
+                console.log(`[Gemini Filler] SELECT: currently selected option text="${currentSelectedOption?.text}", visible in UI=${element.offsetParent !== null}`);
+
+                aChangeWasMade = true;
+                filled = true;
+              } else {
+                console.warn(`[Gemini Filler] Matched text "${bestMatchText}" but option not found in SELECT`);
+              }
+            } else {
+              console.warn(`[Gemini Filler] findBestMatch failed for answer "${answer}" in SELECT with ${metadata.optionsText?.length} options`);
+            }
+          } else if (element.getAttribute('role') === 'radiogroup') {
+            const radioButtons = Array.from(element.querySelectorAll('button[role="radio"]'));
+            const optionDetails = radioButtons.map(rb => {
+              const label = document.querySelector(`label[for="${rb.id}"]`) || rb.closest('div')?.querySelector('label');
+              return {
+                button: rb,
+                text: label ? label.textContent.trim() : rb.getAttribute('aria-label') || ''
+              };
+            });
+
+            const bestMatchText = findBestMatch(answer, optionDetails.map(o => o.text));
+            console.log(`[Gemini Filler] findBestMatch("${answer}") -> "${bestMatchText}" for radiogroup with ${optionDetails.length} options`);
+            if (bestMatchText) {
+              const matchingOption = optionDetails.find(o => o.text === bestMatchText);
+              if (matchingOption) {
+                matchingOption.button.click();
+                aChangeWasMade = true;
+                filled = true;
+              } else {
+                console.warn(`[Gemini Filler] Matched text "${bestMatchText}" but radio button not found`);
+              }
+            } else {
+              console.warn(`[Gemini Filler] findBestMatch failed for answer "${answer}" in radiogroup with ${optionDetails.length} options`);
+            }
+          } else {
+            // Text input, textarea, etc.
+            element.value = answer;
+            await new Promise(resolve => setTimeout(resolve, 200));
+            const inputEvent = new Event('input', { bubbles: true });
+            inputEvent._autofilledByExtension = true;
+            const changeEvent = new Event('change', { bubbles: true });
+            changeEvent._autofilledByExtension = true;
+            element.dispatchEvent(inputEvent);
+            element.dispatchEvent(changeEvent);
+            aChangeWasMade = true;
+            filled = true;
+            console.log(`[Gemini Filler] Filled text input with: "${answer}"`);
+          }
+
+          // Only mark as processed if we actually filled it
+          if (filled) {
+            processedElements.add(element);
+            console.log(`[Gemini Filler] Marked element as processed: "${batchQuestions[i].question}"`);
+          } else {
+            console.log(`[Gemini Filler] Element NOT marked as processed (will retry): "${batchQuestions[i].question}"`);
+          }
+
+          // Capture for learning (only if answer from AI, not mock, and not placeholder)
+          if (filled && answerSource === 'ai' && !isPlaceholder(answer)) {
+            try {
+              const capturedHash = await captureQuestionBridge(element, answer);
+              if (capturedHash) {
+                console.log(`%c[SYSTEM UCZENIA] 💾 Zapisano pytanie: "${batchQuestions[i].question}" → "${answer}"`, 'color: purple; font-weight: bold;');
+                console.log(`%c   Kliknij 👍/👎 obok pola żeby zwiększyć pewność odpowiedzi!`, 'color: purple;');
+                addFeedbackButtonBridge(element, capturedHash);
+              }
+            } catch (err) {
+              console.warn('[Gemini Filler] Error capturing batch question:', err);
+            }
+          } else if (filled && answerSource === 'ai' && isPlaceholder(answer)) {
+            console.log(`[Gemini Filler] Skipping learning capture for placeholder answer: "${answer}"`);
+          }
+        } catch (error) {
+          console.error(`[Gemini Filler] Error filling batch element:`, error);
+        }
+      }
+    }
+
+    // Now handle special types individually
+    for (const element of formElements) {
+      if (processedElements.has(element)) continue;
+      if (!document.contains(element)) continue;
+
+      try {
+        if (element.type === 'file') {
+          const question = getQuestionForInput(element);
+          const keywords = ['cv', 'resume', 'życiorys', 'załącz', 'plik'];
+          if (question && keywords.some(keyword => question.toLowerCase().includes(keyword))) {
+            await handleFileInput(element);
+            processedElements.add(element);
+          }
+          continue;
+        }
+
+        if (element.type === 'radio') {
+          await handleRadioButton(element, userData, processedElements);
+          continue;
+        }
+
+        if (element.type === 'checkbox') {
+          await handleCheckbox(element, userData);
+          processedElements.add(element);
+          continue;
+        }
+
+        // Custom dropdowns
+        if (element.tagName === 'BUTTON' && element.getAttribute('aria-haspopup') === 'dialog') {
+          const question = getQuestionForInput(element);
+          if (!question) {
+            console.log('[Gemini Filler] Custom dropdown: no question found, skipping');
+            continue;
+          }
+
+          let filled = false;  // Track if we successfully filled this
+
+          try {
+            console.log(`[Gemini Filler] Processing custom dropdown: "${question}"`);
+
+            const result = await getAIResponse(question, userData, null);
+            const answer = result.answer;
+            const answerSource = result.source;
+
+            if (!answer) {
+              console.log(`[Gemini Filler] Custom dropdown: no answer for "${question}"`);
+              continue;  // Don't mark as processed - let second pass retry
+            }
+
+            console.log(`[Gemini Filler] Custom dropdown: got answer "${answer}" from ${answerSource}`);
+
+            element.click();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            const dialogId = element.getAttribute('aria-controls');
+            let optionsInDialog = [];
+            if (dialogId) {
+              const dialog = document.getElementById(dialogId);
+              if (dialog) {
+                optionsInDialog = Array.from(dialog.querySelectorAll('[role="option"]'));
+              }
+            } else {
+              optionsInDialog = Array.from(document.querySelectorAll('[role="option"]'));
+            }
+
+            console.log(`[Gemini Filler] Custom dropdown: found ${optionsInDialog.length} options in dialog`);
+
+            // Debug: Show first 10 options to see format
+            const optionsText = optionsInDialog.map(o => o.textContent.trim());
+            const first10 = optionsText.slice(0, 10);
+            console.log(`[Gemini Filler] Custom dropdown: first 10 options:`, first10);
+
+            // Debug: Find options containing "poland" or "polska"
+            const polandOptions = optionsText.filter(o =>
+              o.toLowerCase().includes('poland') || o.toLowerCase().includes('polska')
+            );
+            console.log(`[Gemini Filler] Custom dropdown: options containing "poland"/"polska":`, polandOptions);
+
+            const bestMatch = findBestMatch(answer, optionsText);
+            console.log(`[Gemini Filler] Custom dropdown: findBestMatch("${answer}") -> "${bestMatch}"`);
+
+            if (bestMatch) {
+              const bestMatchElement = optionsInDialog.find(o => o.textContent === bestMatch);
+              if (bestMatchElement) {
+                bestMatchElement.click();
+                aChangeWasMade = true;
+                filled = true;
+                console.log(`[Gemini Filler] Custom dropdown: successfully clicked option "${bestMatch}"`);
+
+                // Capture for learning and add feedback button (only for AI answers, not placeholders)
+                if (answerSource === 'ai' && !isPlaceholder(answer)) {
+                  try {
+                    const capturedHash = await captureQuestionBridge(element, answer);
+                    if (capturedHash) {
+                      addFeedbackButtonBridge(element, capturedHash);
+                    }
+                  } catch (err) {
+                    console.warn('[Gemini Filler] Error capturing custom dropdown question:', err);
+                  }
+                }
+              } else {
+                console.warn(`[Gemini Filler] Custom dropdown: matched text "${bestMatch}" but element not found`);
+              }
+            } else {
+              console.warn(`[Gemini Filler] Custom dropdown: no match for "${answer}" among ${optionsInDialog.length} options`);
+            }
+
+            // Only mark as processed if we successfully filled it
+            if (filled) {
+              processedElements.add(element);
+              console.log(`[Gemini Filler] Custom dropdown: marked as processed`);
+            } else {
+              console.log(`[Gemini Filler] Custom dropdown: NOT marked as processed (will retry in second pass)`);
+            }
+          } catch (e) {
+            console.error(`[Gemini Filler] Error with custom dropdown:`, e);
+            // Don't add to processedElements on error - allow retry
+          }
+          continue;
+        }
+      } catch (error) {
+        console.error('[Gemini Filler] Error processing special element:', error);
+      }
+    }
+
+    // Recursively check for new fields
+    if (aChangeWasMade) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await fillFormWithAI(userData, processedElements, depth + 1, isRetry, missingFields);
+    }
+
+    // Second verification pass
+    if (!isRetry) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const allFields = document.querySelectorAll('input:not([type="file"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="hidden"]), textarea, select');
+
+      let missedFields = [];
+      for (const field of allFields) {
+        if (!processedElements.has(field) &&
+            field.offsetParent !== null &&
+            !field.value &&
+            !field.disabled &&
+            !field.readOnly) {
+          missedFields.push(field);
+        }
+      }
+
+      if (missedFields.length > 0) {
+        console.log(`[Gemini Filler] Second pass: found ${missedFields.length} missed fields, retrying...`);
+        await fillFormWithAI(userData, processedElements, 0, true, missingFields);
+      } else {
+        console.log('[Gemini Filler] Second pass: no missed fields found.');
+      }
+    }
+
+    // Show summary of missing fields if any (BEFORE return!)
+    console.log(`[Gemini Filler] Checking missing fields summary: missingFields=${missingFields ? 'exists' : 'null'}, length=${missingFields?.length || 0}`);
+    if (missingFields && missingFields.length > 0) {
+      console.log(`[Gemini Filler] Displaying missing fields summary for ${missingFields.length} fields:`, missingFields.map(f => f.question));
+      showMissingFieldsSummary(missingFields, userData);
+    } else {
+      console.log('[Gemini Filler] No missing fields to display, or missingFields is empty');
+    }
+
+    return; // Exit early after batch processing
+  }
+
+  // INDIVIDUAL PROCESSING - for dynamic fields (depth > 0) or retry pass
+  console.log(`[Gemini Filler] Individual processing mode (depth: ${depth}, retry: ${isRetry})...`);
 
   for (const element of formElements) {
     if (processedElements.has(element)) {
@@ -124,12 +678,38 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       }
 
       let answer;
+      let questionHash = null;
+      let answerSource = null; // 'learned', 'mock', 'ai'
+
+      // First, try to get suggestion from learned questions
       try {
-        answer = await getAIResponse(question, userData, optionsText);
-      } catch (error) {
-        console.error(`[Gemini Filler] AI error for question "${question}":`, error);
-        // Continue to next field instead of failing completely
-        continue;
+        const suggestion = await getSuggestionForFieldBridge(element);
+        if (suggestion && suggestion.confidence > 0.75) {
+          answer = suggestion.answer;
+          questionHash = suggestion.questionHash;
+          answerSource = 'learned';
+          console.log(`%c[SYSTEM UCZENIA] ✅ Używam nauczoneј odpowiedzi dla "${question}"`, 'color: green; font-weight: bold;');
+          console.log(`%c   Odpowiedź: "${answer}" | Pewność: ${(suggestion.confidence * 100).toFixed(0)}% | Źródło: ${suggestion.source}`, 'color: green;');
+        } else if (suggestion) {
+          console.log(`%c[SYSTEM UCZENIA] ⏳ Znaleziono odpowiedź dla "${question}" ale pewność zbyt niska: ${(suggestion.confidence * 100).toFixed(0)}% (wymaga ≥75%)`, 'color: orange;');
+        } else {
+          console.log(`%c[SYSTEM UCZENIA] ℹ️ Brak nauczoneј odpowiedzi dla "${question}" - używam AI`, 'color: blue;');
+        }
+      } catch (err) {
+        console.warn('[Gemini Filler] Error getting learned suggestion:', err);
+      }
+
+      // If no learned answer, use AI/mock
+      if (!answer) {
+        try {
+          const result = await getAIResponse(question, userData, optionsText);
+          answer = result.answer;
+          answerSource = result.source;
+        } catch (error) {
+          console.error(`[Gemini Filler] AI error for question "${question}":`, error);
+          // Continue to next field instead of failing completely
+          continue;
+        }
       }
 
       if (!answer) {
@@ -143,8 +723,13 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             const bestMatchOption = Array.from(element.options).find(o => o.text === bestMatchText);
             if (bestMatchOption) {
               element.value = bestMatchOption.value;
-              element.dispatchEvent(new Event('input', { bubbles: true }));
-              element.dispatchEvent(new Event('change', { bubbles: true }));
+              await new Promise(resolve => setTimeout(resolve, 200));
+              const inputEvent = new Event('input', { bubbles: true });
+              inputEvent._autofilledByExtension = true;
+              const changeEvent = new Event('change', { bubbles: true });
+              changeEvent._autofilledByExtension = true;
+              element.dispatchEvent(inputEvent);
+              element.dispatchEvent(changeEvent);
               aChangeWasMade = true;
             }
           }
@@ -195,9 +780,46 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           }
         } else {
           element.value = answer;
-          element.dispatchEvent(new Event('input', { bubbles: true }));
-          element.dispatchEvent(new Event('change', { bubbles: true }));
+          await new Promise(resolve => setTimeout(resolve, 200));
+          const inputEvent = new Event('input', { bubbles: true });
+          inputEvent._autofilledByExtension = true;
+          const changeEvent = new Event('change', { bubbles: true });
+          changeEvent._autofilledByExtension = true;
+          element.dispatchEvent(inputEvent);
+          element.dispatchEvent(changeEvent);
           aChangeWasMade = true;
+        }
+
+        // Log successful filling
+        if (aChangeWasMade) {
+          console.log(`[Gemini Filler] Individual processing: filled "${question}" = "${answer}" (source: ${answerSource})`);
+        }
+
+        // Capture the question and answer for learning (only if from AI and not a placeholder)
+        if (answer && answerSource === 'ai' && !isPlaceholder(answer)) {
+          try {
+            console.log(`[DEBUG] Calling captureQuestion for "${question}"...`);
+            const capturedHash = await captureQuestionBridge(element, answer);
+            console.log(`[DEBUG] captureQuestion returned: ${capturedHash}`);
+            if (capturedHash && !questionHash) {
+              questionHash = capturedHash;
+              console.log(`%c[SYSTEM UCZENIA] 💾 Zapisano pytanie: "${question}" → "${answer}"`, 'color: purple; font-weight: bold;');
+              console.log(`%c   Kliknij 👍/👎 obok pola żeby zwiększyć pewność odpowiedzi!`, 'color: purple;');
+            }
+          } catch (err) {
+            console.warn('[Gemini Filler] Error capturing question for learning:', err);
+          }
+        } else if (answer && answerSource === 'ai' && isPlaceholder(answer)) {
+          console.log(`[Gemini Filler] Skipping learning capture for placeholder answer: "${answer}"`);
+        }
+
+        // Add feedback button for learned and AI answers (not for mock data)
+        if (questionHash && (answerSource === 'learned' || answerSource === 'ai')) {
+          try {
+            addFeedbackButtonBridge(element, questionHash);
+          } catch (err) {
+            console.warn('[Gemini Filler] Error adding feedback button:', err);
+          }
         }
       } catch (error) {
         console.error(`[Gemini Filler] Error filling element for "${question}":`, error);
@@ -212,8 +834,252 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
   // Recursively check for new fields, with depth tracking
   if (aChangeWasMade) {
     await new Promise(resolve => setTimeout(resolve, 1000));
-    await fillFormWithAI(userData, processedElements, depth + 1);
+    await fillFormWithAI(userData, processedElements, depth + 1, isRetry, missingFields);
   }
+
+  // Note: For individual processing path (depth > 0 or isRetry), we don't show modal
+  // Modal is only shown at the end of batch processing (depth 0, !isRetry)
+}
+
+function showMissingFieldsSummary(missingFields, userData) {
+  console.log('[Gemini Filler] showMissingFieldsSummary called with:', missingFields);
+
+  // Remove duplicates based on question
+  const uniqueFields = [];
+  const seen = new Set();
+
+  for (const field of missingFields) {
+    if (!seen.has(field.question)) {
+      seen.add(field.question);
+      uniqueFields.push(field);
+    }
+  }
+
+  console.log(`[Gemini Filler] After deduplication: ${uniqueFields.length} unique fields`);
+  if (uniqueFields.length === 0) {
+    console.log('[Gemini Filler] No unique fields to display, returning');
+    return;
+  }
+
+  // Create summary message
+  let message = '⚠️ PODSUMOWANIE WYPEŁNIANIA FORMULARZA\n\n';
+  message += `Nie udało się wypełnić ${uniqueFields.length} pól z powodu braku danych:\n\n`;
+
+  uniqueFields.forEach((field, index) => {
+    message += `${index + 1}. ${field.question}\n`;
+    message += `   Powód: ${field.reason}\n\n`;
+  });
+
+  message += '💡 SUGESTIE:\n\n';
+  message += '1. Uzupełnij te pola ręcznie\n';
+  message += '2. Lub dodaj brakujące dane w opcjach rozszerzenia:\n';
+  message += '   - Kliknij prawym na ikonę rozszerzenia\n';
+  message += '   - Wybierz "Opcje"\n';
+  message += '   - Dodaj brakujące dane\n\n';
+
+  // Suggest specific fields to add
+  const suggestions = getSuggestedFields(uniqueFields);
+  if (suggestions.length > 0) {
+    message += 'REKOMENDOWANE POLA DO DODANIA:\n';
+    suggestions.forEach(sug => {
+      message += `   • ${sug}\n`;
+    });
+  }
+
+  // Create styled modal instead of basic alert
+  console.log('[Gemini Filler] Creating summary modal...');
+  const modal = createSummaryModal(uniqueFields, suggestions);
+  console.log('[Gemini Filler] Appending modal to document.body');
+  document.body.appendChild(modal);
+  console.log('[Gemini Filler] Modal appended successfully');
+
+  // Auto-close after 30 seconds
+  setTimeout(() => {
+    if (modal && modal.parentNode) {
+      console.log('[Gemini Filler] Auto-closing modal after 30s');
+      modal.remove();
+    }
+  }, 30000);
+}
+
+function getSuggestedFields(missingFields) {
+  const suggestions = [];
+  const questionKeywords = {
+    'wykształcenie': 'Wykształcenie',
+    'education': 'Wykształcenie',
+    'doświadczenie': 'Lata doświadczenia',
+    'experience': 'Lata doświadczenia',
+    'lata': 'Lata doświadczenia',
+    'years': 'Lata doświadczenia',
+    'płeć': 'Płeć',
+    'gender': 'Płeć',
+    'wiek': 'Wiek',
+    'age': 'Wiek',
+    'data urodzenia': 'Data urodzenia',
+    'birth': 'Data urodzenia',
+    'obywatelstwo': 'Obywatelstwo',
+    'citizenship': 'Obywatelstwo',
+    'języki': 'Języki obce',
+    'languages': 'Języki obce',
+    'prawo jazdy': 'Prawo jazdy',
+    'driving': 'Prawo jazdy',
+    'linkedin': 'LinkedIn',
+    'github': 'GitHub',
+    'portfolio': 'Portfolio/Website'
+  };
+
+  const seen = new Set();
+
+  for (const field of missingFields) {
+    const lowerQuestion = field.question.toLowerCase();
+    for (const [keyword, suggestion] of Object.entries(questionKeywords)) {
+      if (lowerQuestion.includes(keyword) && !seen.has(suggestion)) {
+        suggestions.push(suggestion);
+        seen.add(suggestion);
+        break;
+      }
+    }
+  }
+
+  return suggestions;
+}
+
+function createSummaryModal(missingFields, suggestions) {
+  const modal = document.createElement('div');
+  modal.id = 'gemini-filler-summary-modal';
+  modal.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    border: 2px solid #ff9800;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    z-index: 999999;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #333;
+  `;
+
+  let content = `
+    <div style="display: flex; align-items: center; margin-bottom: 16px;">
+      <span style="font-size: 32px; margin-right: 12px;">⚠️</span>
+      <h2 style="margin: 0; font-size: 20px; color: #ff9800;">Podsumowanie wypełniania</h2>
+    </div>
+
+    <div style="margin-bottom: 20px; padding: 12px; background: #fff3e0; border-left: 4px solid #ff9800; border-radius: 4px;">
+      <strong>Nie wypełniono ${missingFields.length} pól</strong> z powodu braku danych w bazie wiedzy
+    </div>
+
+    <div style="margin-bottom: 20px;">
+      <h3 style="font-size: 16px; margin-bottom: 12px; color: #555;">Niewypełnione pola:</h3>
+      <ul style="margin: 0; padding-left: 20px; line-height: 1.8;">
+  `;
+
+  missingFields.forEach(field => {
+    content += `
+      <li style="margin-bottom: 8px;">
+        <strong>${field.question}</strong>
+        <div style="font-size: 13px; color: #666;">↳ ${field.reason}</div>
+      </li>
+    `;
+  });
+
+  content += `</ul></div>`;
+
+  if (suggestions.length > 0) {
+    content += `
+      <div style="margin-bottom: 20px; padding: 12px; background: #e3f2fd; border-left: 4px solid #2196f3; border-radius: 4px;">
+        <h3 style="font-size: 16px; margin-bottom: 12px; color: #1976d2;">💡 Dodaj do opcji rozszerzenia:</h3>
+        <ul style="margin: 0; padding-left: 20px; line-height: 1.8;">
+    `;
+
+    suggestions.forEach(sug => {
+      content += `<li><code style="background: #fff; padding: 2px 6px; border-radius: 3px; font-size: 13px;">${sug}</code></li>`;
+    });
+
+    content += `
+        </ul>
+      </div>
+    `;
+  }
+
+  content += `
+    <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #e0e0e0;">
+      <strong style="font-size: 14px;">Jak dodać dane:</strong>
+      <ol style="margin: 8px 0 0 0; padding-left: 20px; font-size: 13px; line-height: 1.6; color: #666;">
+        <li>Kliknij prawym na ikonę rozszerzenia</li>
+        <li>Wybierz "Opcje"</li>
+        <li>Dodaj brakujące pola</li>
+      </ol>
+    </div>
+
+    <div style="text-align: center; margin-top: 20px;">
+      <button id="close-summary-modal" style="
+        background: #ff9800;
+        color: white;
+        border: none;
+        padding: 10px 24px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+      ">Rozumiem</button>
+    </div>
+
+    <div style="text-align: center; margin-top: 12px; font-size: 12px; color: #999;">
+      To okno zamknie się automatycznie za 30s
+    </div>
+  `;
+
+  modal.innerHTML = content;
+
+  // Add close button handler
+  setTimeout(() => {
+    const closeBtn = document.getElementById('close-summary-modal');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => modal.remove());
+      closeBtn.addEventListener('mouseenter', (e) => {
+        e.target.style.background = '#f57c00';
+      });
+      closeBtn.addEventListener('mouseleave', (e) => {
+        e.target.style.background = '#ff9800';
+      });
+    }
+  }, 0);
+
+  // Add overlay
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999998;
+  `;
+  overlay.addEventListener('click', () => {
+    modal.remove();
+    overlay.remove();
+  });
+  document.body.appendChild(overlay);
+
+  // Remove overlay when modal is removed
+  const observer = new MutationObserver((mutations) => {
+    if (!document.contains(modal)) {
+      overlay.remove();
+      observer.disconnect();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  return modal;
 }
 
 function findBestMatch(answer, options) {
@@ -221,18 +1087,94 @@ function findBestMatch(answer, options) {
     return null;
   }
 
+  // Polish to English country name mapping
+  const countryTranslations = {
+    'polska': 'poland',
+    'niemcy': 'germany',
+    'francja': 'france',
+    'wielka brytania': 'united kingdom',
+    'uk': 'united kingdom',
+    'usa': 'united states',
+    'stany zjednoczone': 'united states',
+    'hiszpania': 'spain',
+    'włochy': 'italy',
+    'holandia': 'netherlands',
+    'belgia': 'belgium',
+    'szwecja': 'sweden',
+    'norwegia': 'norway',
+    'dania': 'denmark',
+    'czechy': 'czech republic',
+    'słowacja': 'slovakia',
+    'austria': 'austria',
+    'szwajcaria': 'switzerland'
+  };
+
+  // Try to translate Polish country names to English
+  const lowerAnswer = answer.toLowerCase().trim();
+  const translatedAnswer = countryTranslations[lowerAnswer] || answer;
+  const wasTranslated = translatedAnswer !== answer;
+
+  // Normalize answer by removing special chars for better matching
+  const normalizedAnswer = translatedAnswer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
+  const answerWords = normalizedAnswer.split(/\s+/).filter(w => w.length > 0);
+
+  // PASS 1: Look for exact match (highest priority)
+  // Try both translated and original if translation happened
+  for (const optionText of options) {
+    if (optionText.toLowerCase() === translatedAnswer.toLowerCase()) {
+      return optionText;
+    }
+    // If translation occurred, also try original answer
+    if (wasTranslated && optionText.toLowerCase() === lowerAnswer) {
+      return optionText;
+    }
+  }
+
+  // PASS 2: Look for substring match (second priority)
+  let substringMatch = null;
+  for (const optionText of options) {
+    const lowerOption = optionText.toLowerCase();
+    const lowerTranslatedAnswer = translatedAnswer.toLowerCase();
+
+    // Try translated answer
+    if (lowerOption.includes(lowerTranslatedAnswer) || lowerTranslatedAnswer.includes(lowerOption)) {
+      if (!substringMatch || optionText.length < substringMatch.length) {
+        substringMatch = optionText;
+      }
+    }
+
+    // If translation occurred, also try original
+    if (wasTranslated && (lowerOption.includes(lowerAnswer) || lowerAnswer.includes(lowerOption))) {
+      if (!substringMatch || optionText.length < substringMatch.length) {
+        substringMatch = optionText;
+      }
+    }
+  }
+
+  if (substringMatch) {
+    return substringMatch;
+  }
+
+  // PASS 3: Word-based scoring (fallback)
   let bestMatch = null;
   let maxScore = 0;
 
-  const answerWords = answer.toLowerCase().split(/\s+/);
+  // Prepare original answer words if translation occurred
+  const originalNormalized = wasTranslated ? lowerAnswer.replace(/[^\w\s]/g, ' ').trim() : null;
+  const originalWords = wasTranslated ? originalNormalized.split(/\s+/).filter(w => w.length > 0) : null;
 
   for (const optionText of options) {
-    if (optionText.toLowerCase() === answer.toLowerCase()) {
-      return optionText;
-    }
+    const normalizedOption = optionText.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
+    const optionWords = normalizedOption.split(/\s+/).filter(w => w.length > 0);
 
-    const optionWords = optionText.toLowerCase().split(/\s+/);
-    const score = answerWords.filter(word => optionWords.includes(word)).length;
+    // Count matching words with translated answer
+    let score = answerWords.filter(word => optionWords.includes(word)).length;
+
+    // If translation occurred, also try original and use better score
+    if (wasTranslated && originalWords) {
+      const originalScore = originalWords.filter(word => optionWords.includes(word)).length;
+      score = Math.max(score, originalScore);
+    }
 
     if (score > maxScore) {
       maxScore = score;
@@ -392,7 +1334,8 @@ async function handleRadioButton(radioElement, userData, processedElements) {
     const optionsText = options.map(o => o.text);
     let answer;
     try {
-      answer = await getAIResponse(question, userData, optionsText);
+      const result = await getAIResponse(question, userData, optionsText);
+      answer = result.answer;
     } catch (error) {
       console.error(`[Gemini Filler] AI error for radio group "${question}":`, error);
       return;
@@ -466,7 +1409,8 @@ async function handleCheckbox(checkboxElement, userData) {
 
     let answer;
     try {
-      answer = await getAIResponse(modifiedQuestion, userData, ['Yes', 'No']);
+      const result = await getAIResponse(modifiedQuestion, userData, ['Yes', 'No']);
+      answer = result.answer;
     } catch (error) {
       console.error(`[Gemini Filler] AI error for checkbox "${question}":`, error);
       return;
@@ -532,31 +1476,53 @@ async function handleCustomResumeButtons(processedElements) {
 
         if (resumeKeywords.some(keyword => combinedText.includes(keyword))) {
           console.log('[Gemini Filler] Found custom resume upload button:', button);
+          console.log('[Gemini Filler] Combined text:', combinedText);
           processedElements.add(button);
 
           try {
             // Click the button to open the file picker
             button.click();
+            console.log('[Gemini Filler] Clicked custom upload button, waiting for file input...');
 
             // Wait for file input to appear (it might be dynamically created)
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 1500)); // Increased to 1.5s
 
             // Look for any newly appeared file inputs
             const fileInputs = document.querySelectorAll('input[type="file"]');
+            console.log(`[Gemini Filler] Found ${fileInputs.length} file inputs after click`);
+
+            let foundAndHandled = false;
             for (const fileInput of fileInputs) {
-              if (!processedElements.has(fileInput) && document.contains(fileInput)) {
+              const alreadyProcessed = processedElements.has(fileInput);
+              const inDom = document.contains(fileInput);
+              console.log('[Gemini Filler] Checking file input:', {
+                id: fileInput.id,
+                alreadyProcessed,
+                inDom,
+                offsetParent: fileInput.offsetParent,
+                displayStyle: fileInput.style.display
+              });
+
+              if (!alreadyProcessed && inDom) {
                 // Check if it's visible or in a modal/dialog
                 const isVisible = fileInput.offsetParent !== null ||
                                  fileInput.closest('[role="dialog"]') !== null ||
                                  fileInput.closest('.modal') !== null;
 
                 if (isVisible || fileInput.style.display !== 'none') {
-                  console.log('[Gemini Filler] Found file input after clicking custom button');
+                  console.log('[Gemini Filler] Found valid file input, attempting to attach CV...');
                   await handleFileInput(fileInput);
                   processedElements.add(fileInput);
+                  foundAndHandled = true;
                   break; // Only handle the first one
+                } else {
+                  console.log('[Gemini Filler] File input not visible, skipping');
                 }
               }
+            }
+
+            if (!foundAndHandled && fileInputs.length === 0) {
+              console.warn('[Gemini Filler] No file inputs found after clicking custom button. May need to manually trigger.');
             }
           } catch (error) {
             console.error('[Gemini Filler] Error handling custom upload button:', error);
