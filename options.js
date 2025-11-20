@@ -9,6 +9,9 @@ const cvStatusEl = document.getElementById('cv-status');
 const apiKeyInput = document.getElementById('api-key');
 const apiKeyStatusEl = document.getElementById('api-key-status');
 const toggleApiKeyBtn = document.getElementById('toggle-api-key');
+const useCustomPromptCheckbox = document.getElementById('use-custom-prompt');
+const customPromptContainer = document.getElementById('custom-prompt-container');
+const customPromptTextarea = document.getElementById('custom-prompt');
 
 // --- Data Management ---
 
@@ -199,6 +202,45 @@ function saveData() {
       statusEl.style.color = '';
     }, 2000);
   });
+}
+
+// --- Custom Prompt Management ---
+
+function saveCustomPrompt() {
+  const useCustomPrompt = useCustomPromptCheckbox.checked;
+  const customPrompt = customPromptTextarea.value.trim();
+
+  chrome.storage.local.set({
+    useCustomPrompt: useCustomPrompt,
+    customPrompt: customPrompt
+  }, () => {
+    if (chrome.runtime.lastError) {
+      console.error('Error saving custom prompt:', chrome.runtime.lastError);
+      return;
+    }
+    console.log('Custom prompt saved:', { useCustomPrompt, promptLength: customPrompt.length });
+  });
+}
+
+function loadCustomPrompt() {
+  chrome.storage.local.get(['useCustomPrompt', 'customPrompt'], (result) => {
+    if (chrome.runtime.lastError) {
+      console.error('Error loading custom prompt:', chrome.runtime.lastError);
+      return;
+    }
+
+    const useCustomPrompt = result.useCustomPrompt || false;
+    const customPrompt = result.customPrompt || '';
+
+    useCustomPromptCheckbox.checked = useCustomPrompt;
+    customPromptTextarea.value = customPrompt;
+    customPromptContainer.style.display = useCustomPrompt ? 'block' : 'none';
+  });
+}
+
+function toggleCustomPromptVisibility() {
+  customPromptContainer.style.display = useCustomPromptCheckbox.checked ? 'block' : 'none';
+  saveCustomPrompt();
 }
 
 // --- CV Management ---
@@ -1425,6 +1467,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadData();
     loadCvStatus();
     loadCvSettings();
+    loadCustomPrompt();
     displayLearnedQuestions();
     initTabs();
 });
@@ -1432,7 +1475,10 @@ addRowBtn.addEventListener('click', () => createDataRow());
 saveBtn.addEventListener('click', () => {
     saveApiKey();
     saveData();
+    saveCustomPrompt();
 });
+useCustomPromptCheckbox.addEventListener('change', toggleCustomPromptVisibility);
+customPromptTextarea.addEventListener('change', saveCustomPrompt);
 cvUpload.addEventListener('change', handleCvUpload);
 apiKeyInput.addEventListener('change', saveApiKey);
 toggleApiKeyBtn.addEventListener('click', toggleApiKeyVisibility);
