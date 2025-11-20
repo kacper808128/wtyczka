@@ -272,14 +272,14 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           }
 
           // Capture for learning (source is 'ai' from batch)
-          if (filled && typeof captureQuestion === 'function') {
+          if (filled && typeof window.captureQuestion === 'function') {
             try {
-              const capturedHash = await captureQuestion(element, answer);
+              const capturedHash = await window.captureQuestion(element, answer);
               if (capturedHash) {
                 console.log(`%c[SYSTEM UCZENIA] 💾 Zapisano pytanie: "${batchQuestions[i].question}" → "${answer}"`, 'color: purple; font-weight: bold;');
                 console.log(`%c   Kliknij 👍/👎 obok pola żeby zwiększyć pewność odpowiedzi!`, 'color: purple;');
-                if (typeof addFeedbackButton === 'function') {
-                  addFeedbackButton(element, capturedHash);
+                if (typeof window.addFeedbackButton === 'function') {
+                  window.addFeedbackButton(element, capturedHash);
                 }
               }
             } catch (err) {
@@ -382,11 +382,11 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 console.log(`[Gemini Filler] Custom dropdown: successfully clicked option "${bestMatch}"`);
 
                 // Capture for learning and add feedback button
-                if (typeof captureQuestion === 'function') {
+                if (typeof window.captureQuestion === 'function') {
                   try {
-                    const capturedHash = await captureQuestion(element, answer);
-                    if (capturedHash && typeof addFeedbackButton === 'function' && answerSource === 'ai') {
-                      addFeedbackButton(element, capturedHash);
+                    const capturedHash = await window.captureQuestion(element, answer);
+                    if (capturedHash && typeof window.addFeedbackButton === 'function' && answerSource === 'ai') {
+                      window.addFeedbackButton(element, capturedHash);
                     }
                   } catch (err) {
                     console.warn('[Gemini Filler] Error capturing custom dropdown question:', err);
@@ -523,9 +523,9 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       let answerSource = null; // 'learned', 'mock', 'ai'
 
       // First, try to get suggestion from learned questions
-      if (typeof getSuggestionForField === 'function') {
+      if (typeof window.getSuggestionForField === 'function') {
         try {
-          const suggestion = await getSuggestionForField(element);
+          const suggestion = await window.getSuggestionForField(element);
           if (suggestion && suggestion.confidence > 0.75) {
             answer = suggestion.answer;
             questionHash = suggestion.questionHash;
@@ -639,12 +639,13 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         }
 
         // Capture the question and answer for learning
-        console.log(`[DEBUG] Checking capture conditions: captureQuestion=${typeof captureQuestion}, answer=${!!answer}, answerSource=${answerSource}`);
-        if (typeof captureQuestion === 'function' && answer && answerSource === 'ai') {
+        // Note: learning.js is injected as page script, so functions are in window object
+        console.log(`[DEBUG] Checking capture conditions: captureQuestion=${typeof window.captureQuestion}, answer=${!!answer}, answerSource=${answerSource}`);
+        if (typeof window.captureQuestion === 'function' && answer && answerSource === 'ai') {
           try {
             console.log(`[DEBUG] Calling captureQuestion for "${question}"...`);
             // captureQuestion now returns questionHash
-            const capturedHash = await captureQuestion(element, answer);
+            const capturedHash = await window.captureQuestion(element, answer);
             console.log(`[DEBUG] captureQuestion returned: ${capturedHash}, existing questionHash: ${questionHash}`);
             if (capturedHash && !questionHash) {
               questionHash = capturedHash;
@@ -663,10 +664,10 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         }
 
         // Add feedback button for learned and AI answers (not for mock data)
-        if (questionHash && typeof addFeedbackButton === 'function' &&
+        if (questionHash && typeof window.addFeedbackButton === 'function' &&
             (answerSource === 'learned' || answerSource === 'ai')) {
           try {
-            addFeedbackButton(element, questionHash);
+            window.addFeedbackButton(element, questionHash);
           } catch (err) {
             console.warn('[Gemini Filler] Error adding feedback button:', err);
           }
