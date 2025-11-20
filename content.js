@@ -727,8 +727,7 @@ async function fillCustomDropdown(element, userData, question) {
     }
 
     // Click to open dropdown
-    const elementLabel = getQuestionForInput(element);
-    console.log(`[Custom Dropdown] Opening dropdown for "${elementLabel}" (id="${element.id}")`);
+    console.log(`[Custom Dropdown] Opening dropdown for "${question}" (id="${element.id || 'no-id'}")`);
     element.click();
 
     // Wait for dropdown to open
