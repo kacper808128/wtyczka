@@ -474,18 +474,31 @@ function addFeedbackButton(fieldElement, questionHash) {
         const feedback = e.target.dataset.feedback;
         await recordFeedback(hash, feedback);
 
-        // Show quick confirmation
-        feedbackContainer.innerHTML = `<span style="color: green;">✓ Dziękujemy za feedback!</span>`;
-        setTimeout(() => feedbackContainer.remove(), 2000);
+        // Show confirmation but keep buttons visible (disabled)
+        const yesBtn = feedbackContainer.querySelector('.feedback-yes');
+        const noBtn = feedbackContainer.querySelector('.feedback-no');
+        const label = feedbackContainer.querySelector('.feedback-label');
+
+        // Disable both buttons
+        yesBtn.disabled = true;
+        noBtn.disabled = true;
+
+        // Update styling to show which was clicked
+        if (feedback === 'positive') {
+          yesBtn.style.opacity = '1';
+          yesBtn.style.fontWeight = 'bold';
+          noBtn.style.opacity = '0.3';
+        } else {
+          noBtn.style.opacity = '1';
+          noBtn.style.fontWeight = 'bold';
+          yesBtn.style.opacity = '0.3';
+        }
+
+        // Update label to show confirmation
+        label.textContent = '✓ Dziękujemy za feedback!';
+        label.style.color = 'green';
       });
     });
-
-    // Auto-remove after 10 seconds
-    setTimeout(() => {
-      if (feedbackContainer.parentElement) {
-        feedbackContainer.remove();
-      }
-    }, 10000);
   } catch (error) {
     console.error('[Learning] Error adding feedback button:', error);
   }
