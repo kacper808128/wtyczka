@@ -1703,10 +1703,12 @@ function findBestMatch(answer, options) {
 
 function getQuestionForInput(input) {
   let questionText = null;
+  let matchStrategy = null;
 
   // 1. Check for a wrapping label
   if (input.parentElement.tagName === 'LABEL') {
     questionText = input.parentElement.textContent.trim();
+    matchStrategy = '1:wrapping-label';
   }
 
   // 2. Check for a `for` attribute
@@ -1714,6 +1716,7 @@ function getQuestionForInput(input) {
     const label = document.querySelector(`label[for="${input.id}"]`);
     if (label) {
       questionText = label.textContent.trim();
+      matchStrategy = `2:label-for[${input.id}]`;
     }
 
     // Special case: Selectize.js creates inputs with ID ending in '-selectized'
@@ -1723,6 +1726,7 @@ function getQuestionForInput(input) {
       const selectizeLabel = document.querySelector(`label[for="${input.id}-selectized"]`);
       if (selectizeLabel) {
         questionText = selectizeLabel.textContent.trim();
+        matchStrategy = `2:selectize-label-for[${input.id}-selectized]`;
         console.log(`[Gemini Filler] Found Selectize label for SELECT: "${questionText}"`);
       }
     }
@@ -1734,36 +1738,75 @@ function getQuestionForInput(input) {
     const label = document.getElementById(ariaLabelledBy);
     if (label) {
       questionText = label.textContent.trim();
+      matchStrategy = `3:aria-labelledby[${ariaLabelledBy}]`;
     }
   }
-  
+
   // 4. Traverse up the DOM to find a nearby label
   if (!questionText) {
     let current = input;
-    while (current.parentElement) {
+    let depth = 0;
+    while (current.parentElement && depth < 5) {
       const parent = current.parentElement;
+      const parentTag = parent.tagName + (parent.className ? '.' + parent.className.split(' ')[0] : '');
+
       const label = parent.querySelector('label');
       if (label && label.contains(input)) {
          questionText = label.textContent.trim();
+         matchStrategy = `4a:parent-label-contains[depth=${depth}, parent=${parentTag}]`;
+         console.log(`[getQuestion DEBUG] Strategy 4a matched: "${questionText}" (label contains input)`);
          break;
       }
+
       const labels = parent.querySelectorAll('label');
-      for(const l of labels) {
-          if(l.contains(input)) { questionText = l.textContent.trim(); break; }
-          if(l.nextElementSibling === input) { questionText = l.textContent.trim(); break; }
+      console.log(`[getQuestion DEBUG] Checking parent at depth ${depth} (${parentTag}): found ${labels.length} labels`);
+
+      for(let i = 0; i < labels.length; i++) {
+          const l = labels[i];
+          const labelText = l.textContent.trim().substring(0, 50);
+
+          if(l.contains(input)) {
+            questionText = l.textContent.trim();
+            matchStrategy = `4b:label-contains[depth=${depth}, parent=${parentTag}, labelIdx=${i}]`;
+            console.log(`[getQuestion DEBUG] Strategy 4b matched: "${labelText}..." (label ${i} contains input)`);
+            break;
+          }
+
+          if(l.nextElementSibling === input) {
+            questionText = l.textContent.trim();
+            matchStrategy = `4c:label-nextSibling[depth=${depth}, parent=${parentTag}, labelIdx=${i}]`;
+            console.log(`[getQuestion DEBUG] Strategy 4c matched: "${labelText}..." (label ${i} nextSibling is input)`);
+            break;
+          }
+
+          // NEW: Check if label's next sibling is a container that contains the input
+          if (l.nextElementSibling && l.nextElementSibling.contains && l.nextElementSibling.contains(input)) {
+            questionText = l.textContent.trim();
+            matchStrategy = `4d:label-nextSibling-contains[depth=${depth}, parent=${parentTag}, labelIdx=${i}]`;
+            console.log(`[getQuestion DEBUG] Strategy 4d matched: "${labelText}..." (label ${i} nextSibling contains input)`);
+            break;
+          }
       }
       if (questionText) break;
       current = parent;
+      depth++;
     }
   }
 
   // 5. Fallback to aria-label or placeholder
   if (!questionText && input.getAttribute('aria-label')) {
     questionText = input.getAttribute('aria-label').trim();
+    matchStrategy = '5:aria-label';
   }
 
   if (!questionText && input.getAttribute('placeholder')) {
     questionText = input.getAttribute('placeholder').trim();
+    matchStrategy = '6:placeholder';
+  }
+
+  // Log detailed information about the match
+  if (questionText && matchStrategy) {
+    console.log(`[getQuestion] Element ${input.tagName}${input.id ? '#'+input.id : ''}${input.name ? '[name='+input.name+']' : ''} → Question: "${questionText.substring(0, 80)}" [${matchStrategy}]`);
   }
 
   return questionText;
