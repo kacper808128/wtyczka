@@ -298,9 +298,12 @@ async function getRealAIResponse(question, userData, apiKey, options, timeoutMs 
 User data: ${JSON.stringify(userData, null, 2)}
 Question: "${question}"`;
 
-  if (options) {
+  if (options && options.length > 0) {
     prompt += `\nAvailable options: [${options.join(', ')}]`;
     prompt += `\n\nYour response MUST be one of the "Available options". Do not add any extra text, explanation, or punctuation. Just return the chosen option text exactly as it appears in the list.`;
+  } else if (options && options.length === 0) {
+    // Empty options array - probably Selectize dropdown not loaded yet
+    prompt += `\n\nNote: This is a select/dropdown field, but options are not yet loaded. Please try to answer from userData, or return empty string if unsure.`;
   } else {
     prompt += `\n\nPlease provide only the answer to the question, without any extra text or explanation.`;
   }
