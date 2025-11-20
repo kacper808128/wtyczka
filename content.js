@@ -275,8 +275,12 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           if (filled && typeof captureQuestion === 'function') {
             try {
               const capturedHash = await captureQuestion(element, answer);
-              if (capturedHash && typeof addFeedbackButton === 'function') {
-                addFeedbackButton(element, capturedHash);
+              if (capturedHash) {
+                console.log(`%c[SYSTEM UCZENIA] 💾 Zapisano pytanie: "${batchQuestions[i].question}" → "${answer}"`, 'color: purple; font-weight: bold;');
+                console.log(`%c   Kliknij 👍/👎 obok pola żeby zwiększyć pewność odpowiedzi!`, 'color: purple;');
+                if (typeof addFeedbackButton === 'function') {
+                  addFeedbackButton(element, capturedHash);
+                }
               }
             } catch (err) {
               console.warn('[Gemini Filler] Error capturing batch question:', err);
@@ -526,7 +530,12 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             answer = suggestion.answer;
             questionHash = suggestion.questionHash;
             answerSource = 'learned';
-            console.log(`[Gemini Filler] Using learned answer for "${question}" (confidence: ${suggestion.confidence})`);
+            console.log(`%c[SYSTEM UCZENIA] ✅ Używam nauczoneј odpowiedzi dla "${question}"`, 'color: green; font-weight: bold;');
+            console.log(`%c   Odpowiedź: "${answer}" | Pewność: ${(suggestion.confidence * 100).toFixed(0)}% | Źródło: ${suggestion.source}`, 'color: green;');
+          } else if (suggestion) {
+            console.log(`%c[SYSTEM UCZENIA] ⏳ Znaleziono odpowiedź dla "${question}" ale pewność zbyt niska: ${(suggestion.confidence * 100).toFixed(0)}% (wymaga ≥75%)`, 'color: orange;');
+          } else {
+            console.log(`%c[SYSTEM UCZENIA] ℹ️ Brak nauczoneј odpowiedzi dla "${question}" - używam AI`, 'color: blue;');
           }
         } catch (err) {
           console.warn('[Gemini Filler] Error getting learned suggestion:', err);
