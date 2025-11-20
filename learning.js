@@ -513,8 +513,7 @@ async function clearAllLearnedQuestions() {
 }
 
 // ==================== Export to Window ====================
-// Export functions to window object so content.js (content script) can access them
-// learning.js runs in page context, content.js runs in content script context
+// Export functions to window object (for page context access)
 window.captureQuestion = captureQuestion;
 window.getSuggestionForField = getSuggestionForField;
 window.addFeedbackButton = addFeedbackButton;
@@ -527,3 +526,51 @@ console.log('[Learning] Functions exported to window:', {
   getSuggestionForField: typeof window.getSuggestionForField,
   addFeedbackButton: typeof window.addFeedbackButton
 });
+
+// ==================== Event-Based Communication ====================
+// Content scripts run in isolated world and can't access page's window directly
+// Use custom DOM events for communication between isolated and page contexts
+
+// Listen for captureQuestion requests from content script
+document.addEventListener('learning:captureQuestion', async (event) => {
+  try {
+    const { element, answer, requestId } = event.detail;
+    const hash = await captureQuestion(element, answer);
+    document.dispatchEvent(new CustomEvent('learning:captureQuestionResponse', {
+      detail: { hash, requestId }
+    }));
+  } catch (error) {
+    console.error('[Learning] Error in captureQuestion event handler:', error);
+    document.dispatchEvent(new CustomEvent('learning:captureQuestionResponse', {
+      detail: { hash: null, error: error.message, requestId: event.detail.requestId }
+    }));
+  }
+});
+
+// Listen for getSuggestion requests from content script
+document.addEventListener('learning:getSuggestion', async (event) => {
+  try {
+    const { element, requestId } = event.detail;
+    const suggestion = await getSuggestionForField(element);
+    document.dispatchEvent(new CustomEvent('learning:getSuggestionResponse', {
+      detail: { suggestion, requestId }
+    }));
+  } catch (error) {
+    console.error('[Learning] Error in getSuggestion event handler:', error);
+    document.dispatchEvent(new CustomEvent('learning:getSuggestionResponse', {
+      detail: { suggestion: null, error: error.message, requestId: event.detail.requestId }
+    }));
+  }
+});
+
+// Listen for addFeedbackButton requests from content script
+document.addEventListener('learning:addFeedbackButton', (event) => {
+  try {
+    const { element, questionHash } = event.detail;
+    addFeedbackButton(element, questionHash);
+  } catch (error) {
+    console.error('[Learning] Error in addFeedbackButton event handler:', error);
+  }
+});
+
+console.log('[Learning] Event listeners registered for cross-context communication');

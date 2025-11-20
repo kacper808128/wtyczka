@@ -10,6 +10,72 @@ const script = document.createElement('script');
 script.src = chrome.runtime.getURL('learning.js');
 document.head.appendChild(script);
 
+// ==================== Learning System Bridge ====================
+// Content scripts run in isolated world and can't access page's window directly
+// These helpers use custom DOM events to communicate with learning.js (page context)
+
+let requestIdCounter = 0;
+
+async function captureQuestionBridge(element, answer) {
+  return new Promise((resolve) => {
+    const requestId = `req_${Date.now()}_${requestIdCounter++}`;
+
+    const responseHandler = (event) => {
+      if (event.detail.requestId === requestId) {
+        document.removeEventListener('learning:captureQuestionResponse', responseHandler);
+        resolve(event.detail.hash);
+      }
+    };
+
+    document.addEventListener('learning:captureQuestionResponse', responseHandler);
+
+    // Timeout after 5 seconds
+    setTimeout(() => {
+      document.removeEventListener('learning:captureQuestionResponse', responseHandler);
+      console.warn('[Learning Bridge] captureQuestion timeout');
+      resolve(null);
+    }, 5000);
+
+    document.dispatchEvent(new CustomEvent('learning:captureQuestion', {
+      detail: { element, answer, requestId }
+    }));
+  });
+}
+
+async function getSuggestionForFieldBridge(element) {
+  return new Promise((resolve) => {
+    const requestId = `req_${Date.now()}_${requestIdCounter++}`;
+
+    const responseHandler = (event) => {
+      if (event.detail.requestId === requestId) {
+        document.removeEventListener('learning:getSuggestionResponse', responseHandler);
+        resolve(event.detail.suggestion);
+      }
+    };
+
+    document.addEventListener('learning:getSuggestionResponse', responseHandler);
+
+    // Timeout after 5 seconds
+    setTimeout(() => {
+      document.removeEventListener('learning:getSuggestionResponse', responseHandler);
+      console.warn('[Learning Bridge] getSuggestion timeout');
+      resolve(null);
+    }, 5000);
+
+    document.dispatchEvent(new CustomEvent('learning:getSuggestion', {
+      detail: { element, requestId }
+    }));
+  });
+}
+
+function addFeedbackButtonBridge(element, questionHash) {
+  document.dispatchEvent(new CustomEvent('learning:addFeedbackButton', {
+    detail: { element, questionHash }
+  }));
+}
+
+console.log('[Learning Bridge] Event-based communication helpers initialized');
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "fill_form") {
     showOverlay("Wypełnianie w toku...");
@@ -272,15 +338,13 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           }
 
           // Capture for learning (source is 'ai' from batch)
-          if (filled && typeof window.captureQuestion === 'function') {
+          if (filled) {
             try {
-              const capturedHash = await window.captureQuestion(element, answer);
+              const capturedHash = await captureQuestionBridge(element, answer);
               if (capturedHash) {
                 console.log(`%c[SYSTEM UCZENIA] 💾 Zapisano pytanie: "${batchQuestions[i].question}" → "${answer}"`, 'color: purple; font-weight: bold;');
                 console.log(`%c   Kliknij 👍/👎 obok pola żeby zwiększyć pewność odpowiedzi!`, 'color: purple;');
-                if (typeof window.addFeedbackButton === 'function') {
-                  window.addFeedbackButton(element, capturedHash);
-                }
+                addFeedbackButtonBridge(element, capturedHash);
               }
             } catch (err) {
               console.warn('[Gemini Filler] Error capturing batch question:', err);
@@ -382,15 +446,13 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 console.log(`[Gemini Filler] Custom dropdown: successfully clicked option "${bestMatch}"`);
 
                 // Capture for learning and add feedback button
-                if (typeof window.captureQuestion === 'function') {
-                  try {
-                    const capturedHash = await window.captureQuestion(element, answer);
-                    if (capturedHash && typeof window.addFeedbackButton === 'function' && answerSource === 'ai') {
-                      window.addFeedbackButton(element, capturedHash);
-                    }
-                  } catch (err) {
-                    console.warn('[Gemini Filler] Error capturing custom dropdown question:', err);
+                try {
+                  const capturedHash = await captureQuestionBridge(element, answer);
+                  if (capturedHash && answerSource === 'ai') {
+                    addFeedbackButtonBridge(element, capturedHash);
                   }
+                } catch (err) {
+                  console.warn('[Gemini Filler] Error capturing custom dropdown question:', err);
                 }
               } else {
                 console.warn(`[Gemini Filler] Custom dropdown: matched text "${bestMatch}" but element not found`);
@@ -523,23 +585,21 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       let answerSource = null; // 'learned', 'mock', 'ai'
 
       // First, try to get suggestion from learned questions
-      if (typeof window.getSuggestionForField === 'function') {
-        try {
-          const suggestion = await window.getSuggestionForField(element);
-          if (suggestion && suggestion.confidence > 0.75) {
-            answer = suggestion.answer;
-            questionHash = suggestion.questionHash;
-            answerSource = 'learned';
-            console.log(`%c[SYSTEM UCZENIA] ✅ Używam nauczoneј odpowiedzi dla "${question}"`, 'color: green; font-weight: bold;');
-            console.log(`%c   Odpowiedź: "${answer}" | Pewność: ${(suggestion.confidence * 100).toFixed(0)}% | Źródło: ${suggestion.source}`, 'color: green;');
-          } else if (suggestion) {
-            console.log(`%c[SYSTEM UCZENIA] ⏳ Znaleziono odpowiedź dla "${question}" ale pewność zbyt niska: ${(suggestion.confidence * 100).toFixed(0)}% (wymaga ≥75%)`, 'color: orange;');
-          } else {
-            console.log(`%c[SYSTEM UCZENIA] ℹ️ Brak nauczoneј odpowiedzi dla "${question}" - używam AI`, 'color: blue;');
-          }
-        } catch (err) {
-          console.warn('[Gemini Filler] Error getting learned suggestion:', err);
+      try {
+        const suggestion = await getSuggestionForFieldBridge(element);
+        if (suggestion && suggestion.confidence > 0.75) {
+          answer = suggestion.answer;
+          questionHash = suggestion.questionHash;
+          answerSource = 'learned';
+          console.log(`%c[SYSTEM UCZENIA] ✅ Używam nauczoneј odpowiedzi dla "${question}"`, 'color: green; font-weight: bold;');
+          console.log(`%c   Odpowiedź: "${answer}" | Pewność: ${(suggestion.confidence * 100).toFixed(0)}% | Źródło: ${suggestion.source}`, 'color: green;');
+        } else if (suggestion) {
+          console.log(`%c[SYSTEM UCZENIA] ⏳ Znaleziono odpowiedź dla "${question}" ale pewność zbyt niska: ${(suggestion.confidence * 100).toFixed(0)}% (wymaga ≥75%)`, 'color: orange;');
+        } else {
+          console.log(`%c[SYSTEM UCZENIA] ℹ️ Brak nauczoneј odpowiedzi dla "${question}" - używam AI`, 'color: blue;');
         }
+      } catch (err) {
+        console.warn('[Gemini Filler] Error getting learned suggestion:', err);
       }
 
       // If no learned answer, use AI/mock
@@ -639,35 +699,25 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         }
 
         // Capture the question and answer for learning
-        // Note: learning.js is injected as page script, so functions are in window object
-        console.log(`[DEBUG] Checking capture conditions: captureQuestion=${typeof window.captureQuestion}, answer=${!!answer}, answerSource=${answerSource}`);
-        if (typeof window.captureQuestion === 'function' && answer && answerSource === 'ai') {
+        if (answer && answerSource === 'ai') {
           try {
             console.log(`[DEBUG] Calling captureQuestion for "${question}"...`);
-            // captureQuestion now returns questionHash
-            const capturedHash = await window.captureQuestion(element, answer);
-            console.log(`[DEBUG] captureQuestion returned: ${capturedHash}, existing questionHash: ${questionHash}`);
+            const capturedHash = await captureQuestionBridge(element, answer);
+            console.log(`[DEBUG] captureQuestion returned: ${capturedHash}`);
             if (capturedHash && !questionHash) {
               questionHash = capturedHash;
               console.log(`%c[SYSTEM UCZENIA] 💾 Zapisano pytanie: "${question}" → "${answer}"`, 'color: purple; font-weight: bold;');
               console.log(`%c   Kliknij 👍/👎 obok pola żeby zwiększyć pewność odpowiedzi!`, 'color: purple;');
-            } else if (!capturedHash) {
-              console.log(`[DEBUG] captureQuestion returned null/undefined - not saving to learning system`);
-            } else if (questionHash) {
-              console.log(`[DEBUG] questionHash already set - not overwriting`);
             }
           } catch (err) {
             console.warn('[Gemini Filler] Error capturing question for learning:', err);
           }
-        } else {
-          console.log(`[DEBUG] Skipping capture: not an AI answer or conditions not met`);
         }
 
         // Add feedback button for learned and AI answers (not for mock data)
-        if (questionHash && typeof window.addFeedbackButton === 'function' &&
-            (answerSource === 'learned' || answerSource === 'ai')) {
+        if (questionHash && (answerSource === 'learned' || answerSource === 'ai')) {
           try {
-            window.addFeedbackButton(element, questionHash);
+            addFeedbackButtonBridge(element, questionHash);
           } catch (err) {
             console.warn('[Gemini Filler] Error adding feedback button:', err);
           }
