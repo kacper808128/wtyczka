@@ -148,14 +148,16 @@ CV Data (additional information extracted from user's resume):
     questions.forEach((q, idx) => {
       questionsList += `${idx}. ${q.question}`;
 
-      // Add type information
+      // Add type information with validation
       if (q.type === 'select' || q.type === 'radio') {
-        if (q.options && q.options.length > 0) {
-          questionsList += ` [Type: ${q.type.toUpperCase()}, Options: ${q.options.join(', ')}]`;
+        if (q.options && Array.isArray(q.options) && q.options.length > 0) {
+          const validOptions = q.options.filter(opt => typeof opt === 'string');
+          questionsList += ` [Type: ${q.type.toUpperCase()}, Options: ${validOptions.join(', ')}]`;
         }
       } else if (q.type === 'selectize') {
-        if (q.options && q.options.length > 0) {
-          questionsList += ` [Type: SELECTIZE, Options: ${q.options.join(', ')}]`;
+        if (q.options && Array.isArray(q.options) && q.options.length > 0) {
+          const validOptions = q.options.filter(opt => typeof opt === 'string');
+          questionsList += ` [Type: SELECTIZE, Options: ${validOptions.join(', ')}]`;
         } else {
           // Selectize with no options - dropdown not opened yet, skip for now
           questionsList += ` [Type: SELECTIZE - OPTIONS NOT LOADED YET, return empty string ""]`;
@@ -164,9 +166,10 @@ CV Data (additional information extracted from user's resume):
         questionsList += ` [Type: DATEPICKER, Format: YYYY-MM-DD]`;
       } else if (q.type) {
         questionsList += ` [Type: ${q.type.toUpperCase()}]`;
-      } else if (q.options && q.options.length > 0) {
+      } else if (q.options && Array.isArray(q.options) && q.options.length > 0) {
         // Fallback for questions with options but no type
-        questionsList += ` [Options: ${q.options.join(', ')}]`;
+        const validOptions = q.options.filter(opt => typeof opt === 'string');
+        questionsList += ` [Options: ${validOptions.join(', ')}]`;
       }
 
       questionsList += '\n';
@@ -437,12 +440,24 @@ function getMockAIResponse(question, userData, options) {
     return '';
   }
 
+  // Validate question is a string
+  if (typeof question !== 'string') {
+    console.warn('[Mock AI] Question is not a string:', question);
+    return '';
+  }
+
   const lowerQuestion = question.toLowerCase();
 
   // Helper function to find best match in options
   // Uses same logic as findBestMatch in content.js
   function findInOptions(value, options) {
     if (!options || !value) return value;
+
+    // Validate inputs are proper types
+    if (!Array.isArray(options) || typeof value !== 'string') {
+      console.warn('[Mock AI] Invalid types for findInOptions:', { value, options });
+      return value;
+    }
 
     // Polish to English country name mapping
     const countryTranslations = {
@@ -471,10 +486,13 @@ function getMockAIResponse(question, userData, options) {
     const translatedAnswer = countryTranslations[lowerAnswer] || answer;
 
     const normalizedAnswer = translatedAnswer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
-    const answerWords = normalizedAnswer.split(/\s+/).filter(w => w.length > 0);
+    const answerWords = normalizedAnswer.split(/\s+/).filter(w => w && w.length > 0);
 
     // PASS 1: Try exact match first
     for (const option of options) {
+      // Skip non-string options
+      if (typeof option !== 'string') continue;
+
       if (option.toLowerCase() === translatedAnswer.toLowerCase()) {
         return option;
       }
@@ -483,6 +501,9 @@ function getMockAIResponse(question, userData, options) {
     // PASS 2: Try substring match (prefer shorter/more specific)
     let substringMatch = null;
     for (const option of options) {
+      // Skip non-string options
+      if (typeof option !== 'string') continue;
+
       const lowerOption = option.toLowerCase();
       const lowerTranslatedAnswer = translatedAnswer.toLowerCase();
 
@@ -502,8 +523,11 @@ function getMockAIResponse(question, userData, options) {
     let maxScore = 0;
 
     for (const option of options) {
+      // Skip non-string options
+      if (typeof option !== 'string') continue;
+
       const normalizedOption = option.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
-      const optionWords = normalizedOption.split(/\s+/).filter(w => w.length > 0);
+      const optionWords = normalizedOption.split(/\s+/).filter(w => w && w.length > 0);
 
       const score = answerWords.filter(word => optionWords.includes(word)).length;
 
@@ -627,10 +651,13 @@ function getMockAIResponse(question, userData, options) {
                           lowerQuestion.includes('kiedy') || lowerQuestion.includes('start') ||
                           lowerQuestion.includes('rozpocz') || lowerQuestion.includes('data');
 
+    // Validate options is an array before checking its contents
+    const hasOptions = Array.isArray(options) && options.length > 0;
+
     if (isDateQuestion && relativeDatePattern.test(answer)) {
       // Check if options are provided and if they look like time periods (not dates)
-      const hasTimePeriodOptions = options && options.length > 0 &&
-        options.some(opt => /(natychmiast|immediately|tydzień|tygodni|week|weeks|miesiąc|miesiące|month|months|więcej|more)/i.test(opt));
+      const hasTimePeriodOptions = hasOptions &&
+        options.some(opt => typeof opt === 'string' && /(natychmiast|immediately|tydzień|tygodni|week|weeks|miesiąc|miesiące|month|months|więcej|more)/i.test(opt));
 
       if (hasTimePeriodOptions) {
         // Options are time periods like "Natychmiast", "2 tygodnie", "3 miesiące"
@@ -653,18 +680,18 @@ function getMockAIResponse(question, userData, options) {
 
           console.log(`[Mock AI] Parsed "${answer}" as ${monthsDiff} months from now`);
 
-          // Try to match against option patterns
+          // Try to match against option patterns with validation
           let bestMatch = null;
           if (monthsDiff <= 0) {
-            bestMatch = options.find(opt => /natychmiast|immediately/i.test(opt));
+            bestMatch = options.find(opt => typeof opt === 'string' && /natychmiast|immediately/i.test(opt));
           } else if (monthsDiff <= 0.5) {
-            bestMatch = options.find(opt => /2\s*tyg|2\s*week/i.test(opt));
+            bestMatch = options.find(opt => typeof opt === 'string' && /2\s*tyg|2\s*week/i.test(opt));
           } else if (monthsDiff <= 1) {
-            bestMatch = options.find(opt => /1\s*miesiąc|1\s*month/i.test(opt));
+            bestMatch = options.find(opt => typeof opt === 'string' && /1\s*miesiąc|1\s*month/i.test(opt));
           } else if (monthsDiff <= 3) {
-            bestMatch = options.find(opt => /3\s*miesiąc|3\s*month/i.test(opt));
+            bestMatch = options.find(opt => typeof opt === 'string' && /3\s*miesiąc|3\s*month/i.test(opt));
           } else {
-            bestMatch = options.find(opt => /(więcej|more|powyżej|above).*3|3.*więcej/i.test(opt));
+            bestMatch = options.find(opt => typeof opt === 'string' && /(więcej|more|powyżej|above).*3|3.*więcej/i.test(opt));
           }
 
           if (bestMatch) {
@@ -688,16 +715,16 @@ function getMockAIResponse(question, userData, options) {
   }
 
   // If we have an answer and options, try to match it to available options
-  if (answer && options && options.length > 0) {
+  if (answer && Array.isArray(options) && options.length > 0) {
     return findInOptions(answer, options);
   }
 
-  return answer;
+  return answer || '';
 }
 
 // Date parsing helper (imported from content.js logic)
 function parseDateFromText(text) {
-  if (!text) return null;
+  if (!text || typeof text !== 'string') return null;
   const textLower = text.toLowerCase().trim();
 
   // Word to number mapping (Polish and English)
@@ -1007,12 +1034,17 @@ function calculateYearsOfExperience(experiences) {
 
   experiences.forEach(exp => {
     try {
+      // Validate experience object has required fields
+      if (!exp || !exp.startDate) {
+        return;
+      }
+
       const start = new Date(exp.startDate);
       const end = exp.endDate === 'present' || exp.endDate === 'obecnie' ?
         new Date() :
         new Date(exp.endDate);
 
-      if (!isNaN(start) && !isNaN(end)) {
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
         const months = (end - start) / (1000 * 60 * 60 * 24 * 30.44); // Average days per month
         totalMonths += Math.max(0, months);
       }
