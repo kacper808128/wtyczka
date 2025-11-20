@@ -640,3 +640,321 @@ function hideOverlay() {
     overlay.remove();
   }
 }
+
+// ==================== Application Tracker ====================
+
+// Detect recruitment form submission
+function detectJobApplication() {
+  // Common recruitment form indicators
+  const isRecruitmentSite = () => {
+    const url = window.location.href.toLowerCase();
+    const hostname = window.location.hostname.toLowerCase();
+
+    // Check for known job sites
+    const jobSites = [
+      'linkedin.com/jobs',
+      'pracuj.pl',
+      'nofluffjobs.com',
+      'justjoin.it',
+      'indeed.com',
+      'glassdoor.com',
+      'greenhouse.io',
+      'workable.com',
+      'lever.co',
+      'jobvite.com',
+      'smartrecruiters.com',
+      'breezy.hr',
+      'bamboohr.com',
+      'recruitee.com'
+    ];
+
+    return jobSites.some(site => url.includes(site) || hostname.includes(site));
+  };
+
+  // Extract job information from the page
+  function extractJobInfo() {
+    console.log('[Application Tracker] Extracting job information...');
+
+    const jobInfo = {
+      job_title: '',
+      company: '',
+      location: '',
+      salary: '',
+      job_url: window.location.href,
+      source: window.location.hostname
+    };
+
+    // Try to extract job title
+    const titleSelectors = [
+      'h1[class*="job"]',
+      'h1[class*="title"]',
+      '[class*="job-title"]',
+      '[data-test="job-title"]',
+      'h1',
+      '.position-title',
+      '.job-header h1'
+    ];
+
+    for (const selector of titleSelectors) {
+      const elem = document.querySelector(selector);
+      if (elem && elem.textContent.trim()) {
+        jobInfo.job_title = elem.textContent.trim();
+        console.log('[Application Tracker] Found job title:', jobInfo.job_title);
+        break;
+      }
+    }
+
+    // Try to extract company name
+    const companySelectors = [
+      '[class*="company-name"]',
+      '[class*="employer"]',
+      '[data-test="company-name"]',
+      '.company',
+      '.employer-name',
+      'a[href*="/company/"]'
+    ];
+
+    for (const selector of companySelectors) {
+      const elem = document.querySelector(selector);
+      if (elem && elem.textContent.trim()) {
+        jobInfo.company = elem.textContent.trim();
+        console.log('[Application Tracker] Found company:', jobInfo.company);
+        break;
+      }
+    }
+
+    // Try to extract location
+    const locationSelectors = [
+      '[class*="location"]',
+      '[data-test="location"]',
+      '.job-location',
+      '[class*="city"]'
+    ];
+
+    for (const selector of locationSelectors) {
+      const elem = document.querySelector(selector);
+      if (elem && elem.textContent.trim()) {
+        jobInfo.location = elem.textContent.trim();
+        console.log('[Application Tracker] Found location:', jobInfo.location);
+        break;
+      }
+    }
+
+    // Try to extract salary
+    const salarySelectors = [
+      '[class*="salary"]',
+      '[class*="compensation"]',
+      '[data-test="salary"]',
+      '.pay-range'
+    ];
+
+    for (const selector of salarySelectors) {
+      const elem = document.querySelector(selector);
+      if (elem && elem.textContent.trim()) {
+        jobInfo.salary = elem.textContent.trim();
+        console.log('[Application Tracker] Found salary:', jobInfo.salary);
+        break;
+      }
+    }
+
+    // If we couldn't find title or company, try to get from page title
+    if (!jobInfo.job_title && !jobInfo.company) {
+      const pageTitle = document.title;
+      // Common pattern: "Job Title - Company Name | Job Board"
+      const titleParts = pageTitle.split(/[-|]/);
+      if (titleParts.length >= 2) {
+        jobInfo.job_title = titleParts[0].trim();
+        jobInfo.company = titleParts[1].trim();
+        console.log('[Application Tracker] Extracted from page title:', jobInfo);
+      }
+    }
+
+    return jobInfo;
+  }
+
+  // Show save application modal
+  function showSaveApplicationModal(jobInfo) {
+    // Check if modal already exists
+    if (document.getElementById('app-tracker-modal')) {
+      return;
+    }
+
+    const modal = document.createElement('div');
+    modal.id = 'app-tracker-modal';
+    modal.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      animation: fadeIn 0.3s;
+    `;
+
+    const content = document.createElement('div');
+    content.style.cssText = `
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+      animation: slideUp 0.3s;
+    `;
+
+    const today = new Date().toISOString().split('T')[0];
+
+    content.innerHTML = `
+      <style>
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes slideUp {
+          from { transform: translateY(20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+      </style>
+
+      <h2 style="margin-top: 0; color: #333; font-size: 1.5em;">💼 Zapisać aplikację?</h2>
+      <p style="color: #666; margin-bottom: 20px;">Znaleziono formularz rekrutacyjny. Czy chcesz zapisać tę aplikację?</p>
+
+      <div style="margin-bottom: 15px;">
+        <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #555;">Stanowisko:</label>
+        <input type="text" id="tracker-job-title" value="${escapeHtml(jobInfo.job_title)}"
+          style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+      </div>
+
+      <div style="margin-bottom: 15px;">
+        <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #555;">Firma:</label>
+        <input type="text" id="tracker-company" value="${escapeHtml(jobInfo.company)}"
+          style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+      </div>
+
+      <div style="margin-bottom: 15px;">
+        <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #555;">Lokalizacja:</label>
+        <input type="text" id="tracker-location" value="${escapeHtml(jobInfo.location)}"
+          style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+      </div>
+
+      <div style="margin-bottom: 20px;">
+        <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #555;">Wynagrodzenie:</label>
+        <input type="text" id="tracker-salary" value="${escapeHtml(jobInfo.salary)}"
+          style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;">
+      </div>
+
+      <div style="display: flex; gap: 10px;">
+        <button id="tracker-save-btn" style="flex: 1; padding: 12px; background: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;">
+          💾 Zapisz
+        </button>
+        <button id="tracker-cancel-btn" style="flex: 1; padding: 12px; background: #999; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+          Anuluj
+        </button>
+      </div>
+    `;
+
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+
+    // Helper for escaping HTML
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text || '';
+      return div.innerHTML;
+    }
+
+    // Event listeners
+    document.getElementById('tracker-cancel-btn').addEventListener('click', () => {
+      modal.remove();
+    });
+
+    document.getElementById('tracker-save-btn').addEventListener('click', () => {
+      const applicationData = {
+        id: Date.now().toString(36) + Math.random().toString(36).substr(2),
+        job_title: document.getElementById('tracker-job-title').value.trim(),
+        company: document.getElementById('tracker-company').value.trim(),
+        location: document.getElementById('tracker-location').value.trim(),
+        salary: document.getElementById('tracker-salary').value.trim(),
+        status: 'applied',
+        applied_date: today,
+        job_url: jobInfo.job_url,
+        source: jobInfo.source,
+        notes: '',
+        timeline: [{
+          date: new Date().toISOString(),
+          event: 'Aplikacja wysłana'
+        }],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      // Validate required fields
+      if (!applicationData.job_title || !applicationData.company) {
+        alert('Stanowisko i firma są wymagane!');
+        return;
+      }
+
+      // Send to background script
+      chrome.runtime.sendMessage({
+        action: 'saveApplication',
+        data: applicationData
+      }, (response) => {
+        if (response && response.success) {
+          // Show success message
+          content.innerHTML = `
+            <div style="text-align: center; padding: 20px;">
+              <div style="font-size: 48px; color: #4CAF50; margin-bottom: 15px;">✓</div>
+              <h3 style="margin: 0; color: #333;">Aplikacja zapisana!</h3>
+              <p style="color: #666; margin-top: 10px;">Możesz ją zobaczyć w ustawieniach rozszerzenia</p>
+            </div>
+          `;
+          setTimeout(() => modal.remove(), 2000);
+        } else {
+          alert('Błąd zapisu aplikacji. Spróbuj ponownie.');
+        }
+      });
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+      }
+    });
+  }
+
+  // Listen for form submissions
+  document.addEventListener('submit', (event) => {
+    // Only track if it looks like a recruitment site
+    if (!isRecruitmentSite()) {
+      return;
+    }
+
+    console.log('[Application Tracker] Form submission detected on recruitment site');
+
+    // Extract job info and show modal
+    const jobInfo = extractJobInfo();
+
+    if (jobInfo.job_title || jobInfo.company) {
+      // Small delay to ensure form is submitted first
+      setTimeout(() => {
+        showSaveApplicationModal(jobInfo);
+      }, 500);
+    } else {
+      console.log('[Application Tracker] Could not extract enough job information');
+    }
+  }, true);
+
+  console.log('[Application Tracker] Form submission detection initialized');
+}
+
+// Initialize application tracking
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', detectJobApplication);
+} else {
+  detectJobApplication();
+}

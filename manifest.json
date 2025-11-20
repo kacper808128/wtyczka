@@ -5,7 +5,9 @@
   "description": "Fills out recruitment forms automatically.",
   "permissions": [
     "activeTab",
-    "storage"
+    "storage",
+    "alarms",
+    "notifications"
   ],
   "host_permissions": [
     "https://generativelanguage.googleapis.com/"
@@ -14,6 +16,9 @@
     "default_popup": "popup.html"
   },
   "options_page": "options.html",
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
