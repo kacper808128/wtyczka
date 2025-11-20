@@ -186,7 +186,34 @@ function detectFieldType(element) {
     htmlType: element.type || element.tagName.toLowerCase()
   };
 
-  // SELECT element
+  // SELECTIZE.JS detection (custom select library)
+  // Selectize hides the original SELECT and creates a div-based UI
+  if (element.tagName === 'SELECT' && element.classList.contains('selectized')) {
+    metadata.type = 'selectize';
+    metadata.isCustom = true;
+
+    // Try to find selectize dropdown to extract options
+    const selectizeContainer = element.parentElement?.querySelector('.selectize-control');
+    if (selectizeContainer) {
+      const dropdown = selectizeContainer.querySelector('.selectize-dropdown');
+      if (dropdown) {
+        const optionElements = dropdown.querySelectorAll('.option');
+        metadata.options = Array.from(optionElements).map(opt => opt.textContent.trim()).filter(Boolean);
+      }
+    }
+
+    // Fallback: use original SELECT options if dropdown not found
+    if (!metadata.options || metadata.options.length === 0) {
+      const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
+      metadata.options = Array.from(element.options)
+        .map(o => o.text.trim())
+        .filter(t => t && !placeholderPatterns.test(t));
+    }
+
+    return metadata;
+  }
+
+  // SELECT element (standard)
   if (element.tagName === 'SELECT') {
     metadata.type = 'select';
     const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
@@ -360,10 +387,26 @@ function parseDateFromText(text) {
 
   const now = new Date();
 
-  // Parse "X days/weeks/months/years from now"
+  // Word to number mapping (Polish and English)
+  const wordToNumber = {
+    'jeden': 1, 'jedna': 1, 'jedno': 1, 'one': 1,
+    'dwa': 2, 'dwie': 2, 'two': 2,
+    'trzy': 3, 'three': 3,
+    'cztery': 4, 'four': 4,
+    'pięć': 5, 'five': 5,
+    'sześć': 6, 'six': 6,
+    'siedem': 7, 'seven': 7,
+    'osiem': 8, 'eight': 8,
+    'dziewięć': 9, 'nine': 9,
+    'dziesięć': 10, 'ten': 10,
+    'jedenaście': 11, 'eleven': 11,
+    'dwanaście': 12, 'twelve': 12
+  };
+
+  // Parse "X days/weeks/months/years from now" (numeric)
   const futurePatterns = [
-    { pattern: /(\d+)\s*(dni|day|days|dzień|dni)/i, unit: 'days' },
-    { pattern: /(\d+)\s*(tydzień|tygodni|week|weeks)/i, unit: 'weeks' },
+    { pattern: /(\d+)\s*(dni|day|days|dzień|dzieni)/i, unit: 'days' },
+    { pattern: /(\d+)\s*(tydzień|tygodni|tygodnie|week|weeks)/i, unit: 'weeks' },
     { pattern: /(\d+)\s*(miesiąc|miesiące|miesięcy|month|months)/i, unit: 'months' },
     { pattern: /(\d+)\s*(rok|lata|lat|year|years)/i, unit: 'years' }
   ];
@@ -389,6 +432,42 @@ function parseDateFromText(text) {
           break;
       }
 
+      return result;
+    }
+  }
+
+  // Parse word-based numbers (e.g., "trzy miesiące od teraz")
+  const wordPattern = /(jeden|jedna|jedno|dwa|dwie|trzy|cztery|pięć|sześć|siedem|osiem|dziewięć|dziesięć|jedenaście|dwanaście|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(dni|dzień|day|days|tydzień|tygodni|tygodnie|week|weeks|miesiąc|miesiące|miesięcy|month|months|rok|lata|lat|year|years)/i;
+  const wordMatch = textLower.match(wordPattern);
+
+  if (wordMatch) {
+    const word = wordMatch[1].toLowerCase();
+    const amount = wordToNumber[word] || 1;
+    const unitText = wordMatch[2].toLowerCase();
+
+    let unit;
+    if (/dni|dzień|day|days/i.test(unitText)) unit = 'days';
+    else if (/tydzień|tygodni|tygodnie|week|weeks/i.test(unitText)) unit = 'weeks';
+    else if (/miesiąc|miesiące|miesięcy|month|months/i.test(unitText)) unit = 'months';
+    else if (/rok|lata|lat|year|years/i.test(unitText)) unit = 'years';
+
+    if (unit) {
+      const result = new Date(now);
+      switch (unit) {
+        case 'days':
+          result.setDate(result.getDate() + amount);
+          break;
+        case 'weeks':
+          result.setDate(result.getDate() + (amount * 7));
+          break;
+        case 'months':
+          result.setMonth(result.getMonth() + amount);
+          break;
+        case 'years':
+          result.setFullYear(result.getFullYear() + amount);
+          break;
+      }
+      console.log(`[Date Parser] Parsed "${text}" as ${amount} ${unit} from now = ${result.toISOString().split('T')[0]}`);
       return result;
     }
   }
@@ -444,6 +523,82 @@ function fillDatepicker(element, dateValue) {
     return true;
   } catch (error) {
     console.error('[Datepicker] Error filling:', error);
+    return false;
+  }
+}
+
+/**
+ * Fill a Selectize.js dropdown
+ * @param {HTMLElement} selectElement - The original SELECT element with .selectized class
+ * @param {string} value - Value to select
+ * @param {Array<string>} options - Available options
+ * @returns {Promise<boolean>} Success status
+ */
+async function fillSelectize(selectElement, value, options) {
+  try {
+    console.log(`[Selectize] Attempting to fill with value: "${value}"`);
+
+    // Find the selectize container
+    const selectizeContainer = selectElement.parentElement?.querySelector('.selectize-control');
+    if (!selectizeContainer) {
+      console.warn('[Selectize] Could not find selectize container');
+      return false;
+    }
+
+    // Find the input trigger
+    const selectizeInput = selectizeContainer.querySelector('.selectize-input input');
+    if (!selectizeInput) {
+      console.warn('[Selectize] Could not find selectize input');
+      return false;
+    }
+
+    // Click input to open dropdown
+    selectizeInput.click();
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Find dropdown
+    const dropdown = selectizeContainer.querySelector('.selectize-dropdown');
+    if (!dropdown) {
+      console.warn('[Selectize] Could not find dropdown');
+      return false;
+    }
+
+    // Get all option elements
+    const optionElements = Array.from(dropdown.querySelectorAll('.option'));
+    console.log(`[Selectize] Found ${optionElements.length} options`);
+
+    // Fuzzy match value to options
+    const optionTexts = optionElements.map(opt => opt.textContent.trim());
+    const matchedText = fuzzyMatch(value, optionTexts);
+
+    if (!matchedText) {
+      console.warn(`[Selectize] No match found for "${value}" in options:`, optionTexts);
+      // Close dropdown
+      selectizeInput.blur();
+      return false;
+    }
+
+    // Find and click the matched option
+    const matchedOption = optionElements.find(opt => opt.textContent.trim() === matchedText);
+    if (matchedOption) {
+      console.log(`[Selectize] Clicking option: "${matchedText}"`);
+      matchedOption.click();
+
+      // Wait for selection to complete
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // For multi-select, might need to close dropdown
+      if (selectElement.hasAttribute('multiple')) {
+        selectizeInput.blur();
+      }
+
+      console.log(`[Selectize] Successfully selected: "${matchedText}"`);
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error('[Selectize] Error:', error);
     return false;
   }
 }
@@ -747,6 +902,15 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               filled = true;
             } else {
               console.warn(`[Gemini Filler] Failed to fill datepicker with: "${answer}"`);
+            }
+          } else if (metadata.type === 'selectize') {
+            // Handle Selectize.js dropdown
+            const success = await fillSelectize(element, answer, metadata.options);
+            if (success) {
+              aChangeWasMade = true;
+              filled = true;
+            } else {
+              console.warn(`[Gemini Filler] Failed to fill selectize with: "${answer}"`);
             }
           } else {
             // Text input, textarea, etc.
@@ -1088,6 +1252,12 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           }
         } else if (fieldMetadata.type === 'datepicker') {
           const success = fillDatepicker(element, answer);
+          if (success) {
+            aChangeWasMade = true;
+          }
+        } else if (fieldMetadata.type === 'selectize') {
+          // Handle Selectize.js dropdown
+          const success = await fillSelectize(element, answer, fieldMetadata.options);
           if (success) {
             aChangeWasMade = true;
           }
