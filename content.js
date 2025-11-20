@@ -207,7 +207,15 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 changeEvent._autofilledByExtension = true;
                 element.dispatchEvent(inputEvent);
                 element.dispatchEvent(changeEvent);
-                console.log(`[Gemini Filler] SELECT: dispatched input+change events, current value="${element.value}"`);
+
+                // Verify value stuck after events
+                await new Promise(resolve => setTimeout(resolve, 100));
+                console.log(`[Gemini Filler] SELECT: dispatched input+change events, current value="${element.value}", selectedIndex=${element.selectedIndex}`);
+
+                // Double-check: read selected option text
+                const currentSelectedOption = element.options[element.selectedIndex];
+                console.log(`[Gemini Filler] SELECT: currently selected option text="${currentSelectedOption?.text}", visible in UI=${element.offsetParent !== null}`);
+
                 aChangeWasMade = true;
                 filled = true;
               } else {
@@ -419,10 +427,19 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
       if (missedFields.length > 0) {
         console.log(`[Gemini Filler] Second pass: found ${missedFields.length} missed fields, retrying...`);
-        await fillFormWithAI(userData, processedElements, 0, true);
+        await fillFormWithAI(userData, processedElements, 0, true, missingFields);
       } else {
         console.log('[Gemini Filler] Second pass: no missed fields found.');
       }
+    }
+
+    // Show summary of missing fields if any (BEFORE return!)
+    console.log(`[Gemini Filler] Checking missing fields summary: missingFields=${missingFields ? 'exists' : 'null'}, length=${missingFields?.length || 0}`);
+    if (missingFields && missingFields.length > 0) {
+      console.log(`[Gemini Filler] Displaying missing fields summary for ${missingFields.length} fields:`, missingFields.map(f => f.question));
+      showMissingFieldsSummary(missingFields, userData);
+    } else {
+      console.log('[Gemini Filler] No missing fields to display, or missingFields is empty');
     }
 
     return; // Exit early after batch processing
@@ -634,52 +651,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
     await fillFormWithAI(userData, processedElements, depth + 1, isRetry, missingFields);
   }
 
-  // Second verification pass - only on main call (depth 0) and not already a retry
-  // This catches any fields that were missed during the first pass
-  if (depth === 0 && !isRetry) {
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Check for missed empty fields
-    const allFields = document.querySelectorAll('input:not([type="file"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="hidden"]), textarea, select');
-
-    let missedFields = [];
-    let debugInfo = [];
-    for (const field of allFields) {
-      const isProcessed = processedElements.has(field);
-      const isVisible = field.offsetParent !== null;
-      const isEmpty = !field.value || field.value === '';
-      const isEnabled = !field.disabled;
-      const isEditable = !field.readOnly;
-
-      // Check if field is visible, not processed, and empty
-      if (!isProcessed && isVisible && isEmpty && isEnabled && isEditable) {
-        missedFields.push(field);
-        debugInfo.push({
-          id: field.id,
-          name: field.name,
-          tagName: field.tagName,
-          value: field.value
-        });
-      }
-    }
-
-    if (missedFields.length > 0) {
-      console.log(`[Gemini Filler] Second pass: found ${missedFields.length} missed fields:`, debugInfo);
-      await fillFormWithAI(userData, processedElements, 0, true, missingFields);
-    } else {
-      console.log('[Gemini Filler] Second pass: no missed fields found.');
-      console.log(`[Gemini Filler] Total fields checked: ${allFields.length}, Processed: ${processedElements.size}`);
-    }
-
-    // Show summary of missing fields if any
-    console.log(`[Gemini Filler] Checking missing fields summary: missingFields=${missingFields ? 'exists' : 'null'}, length=${missingFields?.length || 0}`);
-    if (missingFields && missingFields.length > 0) {
-      console.log(`[Gemini Filler] Displaying missing fields summary for ${missingFields.length} fields:`, missingFields.map(f => f.question));
-      showMissingFieldsSummary(missingFields, userData);
-    } else {
-      console.log('[Gemini Filler] No missing fields to display, or missingFields is empty');
-    }
-  }
+  // Note: For individual processing path (depth > 0 or isRetry), we don't show modal
+  // Modal is only shown at the end of batch processing (depth 0, !isRetry)
 }
 
 function showMissingFieldsSummary(missingFields, userData) {
