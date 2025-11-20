@@ -850,34 +850,38 @@ async function fillCustomDropdown(element, userData, question) {
     if (isPaginated) {
       console.log(`[Custom Dropdown] Detected paginated dropdown - scrolling to load all options`);
 
-      // Scroll to load all options
-      let previousCount = 0;
-      let currentCount = 0;
+      // Find scrollable container (might be listbox itself or a child)
+      const scrollContainer = listbox.querySelector('[role="listbox"]') ||
+                            listbox.querySelector('.scrollable') ||
+                            listbox;
+
+      // Scroll to load all options - check if we reached the bottom by monitoring scrollTop
+      let previousScrollTop = -1;
+      let currentScrollTop = 0;
       let attempts = 0;
-      const maxAttempts = 20; // Prevent infinite loop
+      const maxAttempts = 50; // Increased for large lists (250+ countries)
+      const scrollDelay = 300; // Slightly longer delay for loading
 
       do {
-        previousCount = currentCount;
-
-        // Find scrollable container (might be listbox itself or a child)
-        const scrollContainer = listbox.querySelector('[role="listbox"]') ||
-                              listbox.querySelector('.scrollable') ||
-                              listbox;
+        previousScrollTop = currentScrollTop;
 
         // Scroll to bottom
         scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        currentScrollTop = scrollContainer.scrollTop;
 
         // Wait for new options to load
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, scrollDelay));
 
-        // Count current options
-        currentCount = listbox.querySelectorAll('[role="option"], [role="menuitem"]').length;
+        const currentCount = listbox.querySelectorAll('[role="option"], [role="menuitem"]').length;
         attempts++;
 
-        console.log(`[Custom Dropdown] Scroll attempt ${attempts}: ${currentCount} options`);
-      } while (currentCount > previousCount && attempts < maxAttempts);
+        console.log(`[Custom Dropdown] Scroll attempt ${attempts}: scrollTop=${currentScrollTop}, options=${currentCount}`);
 
-      console.log(`[Custom Dropdown] Finished loading: ${currentCount} total options after ${attempts} attempts`);
+        // Continue if scrollTop changed (meaning we haven't reached the bottom yet)
+      } while (currentScrollTop > previousScrollTop && attempts < maxAttempts);
+
+      const finalCount = listbox.querySelectorAll('[role="option"], [role="menuitem"]').length;
+      console.log(`[Custom Dropdown] Finished loading: ${finalCount} total options after ${attempts} scroll attempts`);
     }
 
     // Find all options
