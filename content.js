@@ -2001,6 +2001,19 @@ async function handleCustomResumeButtons(processedElements) {
         const combinedText = `${buttonText} ${ariaLabel} ${labelText}`;
         const resumeKeywords = ['resume', 'cv', 'curriculum', 'życiorys', 'załącz'];
 
+        // CRITICAL: Never click submit/send buttons!
+        const submitKeywords = ['submit', 'send', 'wyślij', 'aplikuj', 'apply', 'prześlij'];
+        const isSubmitButton = submitKeywords.some(keyword => combinedText.includes(keyword));
+
+        // Also check if it's an actual submit button element
+        const isSubmitElement = (button.tagName === 'BUTTON' && button.type === 'submit') ||
+                               (button.tagName === 'INPUT' && button.type === 'submit');
+
+        if (isSubmitButton || isSubmitElement) {
+          console.log('[Gemini Filler] SKIPPING button - appears to be a submit button:', combinedText);
+          continue;
+        }
+
         if (resumeKeywords.some(keyword => combinedText.includes(keyword))) {
           console.log('[Gemini Filler] Found custom resume upload button:', button);
           console.log('[Gemini Filler] Combined text:', combinedText);
