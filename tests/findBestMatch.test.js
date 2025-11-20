@@ -9,13 +9,39 @@ function findBestMatch(answer, options) {
     return null;
   }
 
+  // Polish to English country name mapping
+  const countryTranslations = {
+    'polska': 'poland',
+    'niemcy': 'germany',
+    'francja': 'france',
+    'wielka brytania': 'united kingdom',
+    'uk': 'united kingdom',
+    'usa': 'united states',
+    'stany zjednoczone': 'united states',
+    'hiszpania': 'spain',
+    'włochy': 'italy',
+    'holandia': 'netherlands',
+    'belgia': 'belgium',
+    'szwecja': 'sweden',
+    'norwegia': 'norway',
+    'dania': 'denmark',
+    'czechy': 'czech republic',
+    'słowacja': 'slovakia',
+    'austria': 'austria',
+    'szwajcaria': 'switzerland'
+  };
+
+  // Try to translate Polish country names to English
+  const lowerAnswer = answer.toLowerCase().trim();
+  const translatedAnswer = countryTranslations[lowerAnswer] || answer;
+
   // Normalize answer by removing special chars for better matching
-  const normalizedAnswer = answer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
+  const normalizedAnswer = translatedAnswer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
   const answerWords = normalizedAnswer.split(/\s+/).filter(w => w.length > 0);
 
   // PASS 1: Look for exact match (highest priority)
   for (const optionText of options) {
-    if (optionText.toLowerCase() === answer.toLowerCase()) {
+    if (optionText.toLowerCase() === translatedAnswer.toLowerCase()) {
       return optionText;
     }
   }
@@ -24,10 +50,10 @@ function findBestMatch(answer, options) {
   let substringMatch = null;
   for (const optionText of options) {
     const lowerOption = optionText.toLowerCase();
-    const lowerAnswer = answer.toLowerCase();
+    const lowerTranslatedAnswer = translatedAnswer.toLowerCase();
 
     // Exact substring match (answer is in option OR option is in answer)
-    if (lowerOption.includes(lowerAnswer) || lowerAnswer.includes(lowerOption)) {
+    if (lowerOption.includes(lowerTranslatedAnswer) || lowerTranslatedAnswer.includes(lowerOption)) {
       // Prefer shorter matches (more specific)
       if (!substringMatch || optionText.length < substringMatch.length) {
         substringMatch = optionText;
@@ -97,6 +123,26 @@ describe('findBestMatch', () => {
       const options = ['USA (+1)', 'Poland (+48)', 'UK (+44)'];
       expect(findBestMatch('+1', options)).toBe('USA (+1)');
       expect(findBestMatch('+44', options)).toBe('UK (+44)');
+    });
+
+    test('should translate "Polska" to "Poland" and match with (+48)', () => {
+      const options = [
+        'Afghanistan (+93)',
+        'Albania (+355)',
+        'Germany (+49)',
+        'Poland (+48)',
+        'Portugal (+351)',
+        'United Kingdom (+44)'
+      ];
+      expect(findBestMatch('Polska', options)).toBe('Poland (+48)');
+    });
+
+    test('should translate other Polish country names', () => {
+      const options = ['France (+33)', 'Germany (+49)', 'Spain (+34)', 'Italy (+39)'];
+      expect(findBestMatch('Niemcy', options)).toBe('Germany (+49)');
+      expect(findBestMatch('Francja', options)).toBe('France (+33)');
+      expect(findBestMatch('Hiszpania', options)).toBe('Spain (+34)');
+      expect(findBestMatch('Włochy', options)).toBe('Italy (+39)');
     });
   });
 

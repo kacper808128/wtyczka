@@ -52,7 +52,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-async function fillFormWithAI(userData, processedElements = new Set(), depth = 0, isRetry = false) {
+async function fillFormWithAI(userData, processedElements = new Set(), depth = 0, isRetry = false, missingFields = null) {
+  // Track missing fields only on first call (depth 0)
+  if (depth === 0 && !missingFields) {
+    missingFields = [];
+  }
+
   // Prevent infinite recursion
   const MAX_DEPTH = 10;
   if (depth >= MAX_DEPTH) {
@@ -98,7 +103,11 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       let optionsText = null;
       try {
         if (element.tagName === 'SELECT') {
-          optionsText = Array.from(element.options).map(o => o.text).filter(t => t.trim());
+          // Filter out placeholder options (like "-- Wybierz --", "Select", etc.)
+          const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
+          optionsText = Array.from(element.options)
+            .map(o => o.text)
+            .filter(t => t.trim() && !placeholderPatterns.test(t.trim()));
         } else if (element.getAttribute('role') === 'radiogroup') {
           const radioButtons = element.querySelectorAll('button[role="radio"]');
           optionsText = Array.from(radioButtons).map(rb => {
@@ -134,15 +143,35 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         let answer = batchAnswers[i];
         const metadata = batchMetadata[i];
 
-        // If batch AI returned empty, try mock response as fallback
-        if (!answer || answer === '') {
-          console.log(`[Gemini Filler] No batch answer for: "${batchQuestions[i].question}", trying mock fallback...`);
+        // Check if answer is a placeholder (AI sometimes returns these)
+        const isPlaceholder = (text) => {
+          if (!text) return true;
+          const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
+          return placeholderPatterns.test(text.trim());
+        };
+
+        // If batch AI returned empty or placeholder, try mock response as fallback
+        if (!answer || answer === '' || isPlaceholder(answer)) {
+          if (isPlaceholder(answer)) {
+            console.log(`[Gemini Filler] Batch AI returned placeholder "${answer}" for: "${batchQuestions[i].question}", trying mock fallback...`);
+          } else {
+            console.log(`[Gemini Filler] No batch answer for: "${batchQuestions[i].question}", trying mock fallback...`);
+          }
+
           const mockAnswer = getMockAIResponse(batchQuestions[i].question, userData, metadata.optionsText);
-          if (mockAnswer) {
+          if (mockAnswer && !isPlaceholder(mockAnswer)) {
             answer = mockAnswer;
             console.log(`[Gemini Filler] Mock fallback found: "${answer}"`);
           } else {
             console.log(`[Gemini Filler] No mock fallback either, will retry in second pass`);
+            // Track this as potentially missing data
+            if (missingFields && depth === 0) {
+              missingFields.push({
+                question: batchQuestions[i].question,
+                reason: 'Brak danych w bazie wiedzy',
+                element: element
+              });
+            }
             continue;  // Don't add to processedElements - let second pass retry with full AI
           }
         }
@@ -356,7 +385,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
     // Recursively check for new fields
     if (aChangeWasMade) {
       await new Promise(resolve => setTimeout(resolve, 1000));
-      await fillFormWithAI(userData, processedElements, depth + 1, isRetry);
+      await fillFormWithAI(userData, processedElements, depth + 1, isRetry, missingFields);
     }
 
     // Second verification pass
@@ -590,7 +619,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
   // Recursively check for new fields, with depth tracking
   if (aChangeWasMade) {
     await new Promise(resolve => setTimeout(resolve, 1000));
-    await fillFormWithAI(userData, processedElements, depth + 1, isRetry);
+    await fillFormWithAI(userData, processedElements, depth + 1, isRetry, missingFields);
   }
 
   // Second verification pass - only on main call (depth 0) and not already a retry
@@ -624,12 +653,248 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
     if (missedFields.length > 0) {
       console.log(`[Gemini Filler] Second pass: found ${missedFields.length} missed fields:`, debugInfo);
-      await fillFormWithAI(userData, processedElements, 0, true);
+      await fillFormWithAI(userData, processedElements, 0, true, missingFields);
     } else {
       console.log('[Gemini Filler] Second pass: no missed fields found.');
       console.log(`[Gemini Filler] Total fields checked: ${allFields.length}, Processed: ${processedElements.size}`);
     }
+
+    // Show summary of missing fields if any
+    if (missingFields && missingFields.length > 0) {
+      showMissingFieldsSummary(missingFields, userData);
+    }
   }
+}
+
+function showMissingFieldsSummary(missingFields, userData) {
+  // Remove duplicates based on question
+  const uniqueFields = [];
+  const seen = new Set();
+
+  for (const field of missingFields) {
+    if (!seen.has(field.question)) {
+      seen.add(field.question);
+      uniqueFields.push(field);
+    }
+  }
+
+  if (uniqueFields.length === 0) return;
+
+  // Create summary message
+  let message = '⚠️ PODSUMOWANIE WYPEŁNIANIA FORMULARZA\n\n';
+  message += `Nie udało się wypełnić ${uniqueFields.length} pól z powodu braku danych:\n\n`;
+
+  uniqueFields.forEach((field, index) => {
+    message += `${index + 1}. ${field.question}\n`;
+    message += `   Powód: ${field.reason}\n\n`;
+  });
+
+  message += '💡 SUGESTIE:\n\n';
+  message += '1. Uzupełnij te pola ręcznie\n';
+  message += '2. Lub dodaj brakujące dane w opcjach rozszerzenia:\n';
+  message += '   - Kliknij prawym na ikonę rozszerzenia\n';
+  message += '   - Wybierz "Opcje"\n';
+  message += '   - Dodaj brakujące dane\n\n';
+
+  // Suggest specific fields to add
+  const suggestions = getSuggestedFields(uniqueFields);
+  if (suggestions.length > 0) {
+    message += 'REKOMENDOWANE POLA DO DODANIA:\n';
+    suggestions.forEach(sug => {
+      message += `   • ${sug}\n`;
+    });
+  }
+
+  // Create styled modal instead of basic alert
+  const modal = createSummaryModal(uniqueFields, suggestions);
+  document.body.appendChild(modal);
+
+  // Auto-close after 30 seconds
+  setTimeout(() => {
+    if (modal && modal.parentNode) {
+      modal.remove();
+    }
+  }, 30000);
+}
+
+function getSuggestedFields(missingFields) {
+  const suggestions = [];
+  const questionKeywords = {
+    'wykształcenie': 'Wykształcenie',
+    'education': 'Wykształcenie',
+    'doświadczenie': 'Lata doświadczenia',
+    'experience': 'Lata doświadczenia',
+    'lata': 'Lata doświadczenia',
+    'years': 'Lata doświadczenia',
+    'płeć': 'Płeć',
+    'gender': 'Płeć',
+    'wiek': 'Wiek',
+    'age': 'Wiek',
+    'data urodzenia': 'Data urodzenia',
+    'birth': 'Data urodzenia',
+    'obywatelstwo': 'Obywatelstwo',
+    'citizenship': 'Obywatelstwo',
+    'języki': 'Języki obce',
+    'languages': 'Języki obce',
+    'prawo jazdy': 'Prawo jazdy',
+    'driving': 'Prawo jazdy',
+    'linkedin': 'LinkedIn',
+    'github': 'GitHub',
+    'portfolio': 'Portfolio/Website'
+  };
+
+  const seen = new Set();
+
+  for (const field of missingFields) {
+    const lowerQuestion = field.question.toLowerCase();
+    for (const [keyword, suggestion] of Object.entries(questionKeywords)) {
+      if (lowerQuestion.includes(keyword) && !seen.has(suggestion)) {
+        suggestions.push(suggestion);
+        seen.add(suggestion);
+        break;
+      }
+    }
+  }
+
+  return suggestions;
+}
+
+function createSummaryModal(missingFields, suggestions) {
+  const modal = document.createElement('div');
+  modal.id = 'gemini-filler-summary-modal';
+  modal.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    border: 2px solid #ff9800;
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    z-index: 999999;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #333;
+  `;
+
+  let content = `
+    <div style="display: flex; align-items: center; margin-bottom: 16px;">
+      <span style="font-size: 32px; margin-right: 12px;">⚠️</span>
+      <h2 style="margin: 0; font-size: 20px; color: #ff9800;">Podsumowanie wypełniania</h2>
+    </div>
+
+    <div style="margin-bottom: 20px; padding: 12px; background: #fff3e0; border-left: 4px solid #ff9800; border-radius: 4px;">
+      <strong>Nie wypełniono ${missingFields.length} pól</strong> z powodu braku danych w bazie wiedzy
+    </div>
+
+    <div style="margin-bottom: 20px;">
+      <h3 style="font-size: 16px; margin-bottom: 12px; color: #555;">Niewypełnione pola:</h3>
+      <ul style="margin: 0; padding-left: 20px; line-height: 1.8;">
+  `;
+
+  missingFields.forEach(field => {
+    content += `
+      <li style="margin-bottom: 8px;">
+        <strong>${field.question}</strong>
+        <div style="font-size: 13px; color: #666;">↳ ${field.reason}</div>
+      </li>
+    `;
+  });
+
+  content += `</ul></div>`;
+
+  if (suggestions.length > 0) {
+    content += `
+      <div style="margin-bottom: 20px; padding: 12px; background: #e3f2fd; border-left: 4px solid #2196f3; border-radius: 4px;">
+        <h3 style="font-size: 16px; margin-bottom: 12px; color: #1976d2;">💡 Dodaj do opcji rozszerzenia:</h3>
+        <ul style="margin: 0; padding-left: 20px; line-height: 1.8;">
+    `;
+
+    suggestions.forEach(sug => {
+      content += `<li><code style="background: #fff; padding: 2px 6px; border-radius: 3px; font-size: 13px;">${sug}</code></li>`;
+    });
+
+    content += `
+        </ul>
+      </div>
+    `;
+  }
+
+  content += `
+    <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #e0e0e0;">
+      <strong style="font-size: 14px;">Jak dodać dane:</strong>
+      <ol style="margin: 8px 0 0 0; padding-left: 20px; font-size: 13px; line-height: 1.6; color: #666;">
+        <li>Kliknij prawym na ikonę rozszerzenia</li>
+        <li>Wybierz "Opcje"</li>
+        <li>Dodaj brakujące pola</li>
+      </ol>
+    </div>
+
+    <div style="text-align: center; margin-top: 20px;">
+      <button id="close-summary-modal" style="
+        background: #ff9800;
+        color: white;
+        border: none;
+        padding: 10px 24px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+      ">Rozumiem</button>
+    </div>
+
+    <div style="text-align: center; margin-top: 12px; font-size: 12px; color: #999;">
+      To okno zamknie się automatycznie za 30s
+    </div>
+  `;
+
+  modal.innerHTML = content;
+
+  // Add close button handler
+  setTimeout(() => {
+    const closeBtn = document.getElementById('close-summary-modal');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => modal.remove());
+      closeBtn.addEventListener('mouseenter', (e) => {
+        e.target.style.background = '#f57c00';
+      });
+      closeBtn.addEventListener('mouseleave', (e) => {
+        e.target.style.background = '#ff9800';
+      });
+    }
+  }, 0);
+
+  // Add overlay
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999998;
+  `;
+  overlay.addEventListener('click', () => {
+    modal.remove();
+    overlay.remove();
+  });
+  document.body.appendChild(overlay);
+
+  // Remove overlay when modal is removed
+  const observer = new MutationObserver((mutations) => {
+    if (!document.contains(modal)) {
+      overlay.remove();
+      observer.disconnect();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  return modal;
 }
 
 function findBestMatch(answer, options) {
@@ -637,13 +902,39 @@ function findBestMatch(answer, options) {
     return null;
   }
 
+  // Polish to English country name mapping
+  const countryTranslations = {
+    'polska': 'poland',
+    'niemcy': 'germany',
+    'francja': 'france',
+    'wielka brytania': 'united kingdom',
+    'uk': 'united kingdom',
+    'usa': 'united states',
+    'stany zjednoczone': 'united states',
+    'hiszpania': 'spain',
+    'włochy': 'italy',
+    'holandia': 'netherlands',
+    'belgia': 'belgium',
+    'szwecja': 'sweden',
+    'norwegia': 'norway',
+    'dania': 'denmark',
+    'czechy': 'czech republic',
+    'słowacja': 'slovakia',
+    'austria': 'austria',
+    'szwajcaria': 'switzerland'
+  };
+
+  // Try to translate Polish country names to English
+  const lowerAnswer = answer.toLowerCase().trim();
+  const translatedAnswer = countryTranslations[lowerAnswer] || answer;
+
   // Normalize answer by removing special chars for better matching
-  const normalizedAnswer = answer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
+  const normalizedAnswer = translatedAnswer.toLowerCase().replace(/[^\w\s]/g, ' ').trim();
   const answerWords = normalizedAnswer.split(/\s+/).filter(w => w.length > 0);
 
   // PASS 1: Look for exact match (highest priority)
   for (const optionText of options) {
-    if (optionText.toLowerCase() === answer.toLowerCase()) {
+    if (optionText.toLowerCase() === translatedAnswer.toLowerCase()) {
       return optionText;
     }
   }
@@ -652,10 +943,10 @@ function findBestMatch(answer, options) {
   let substringMatch = null;
   for (const optionText of options) {
     const lowerOption = optionText.toLowerCase();
-    const lowerAnswer = answer.toLowerCase();
+    const lowerTranslatedAnswer = translatedAnswer.toLowerCase();
 
     // Exact substring match (answer is in option OR option is in answer)
-    if (lowerOption.includes(lowerAnswer) || lowerAnswer.includes(lowerOption)) {
+    if (lowerOption.includes(lowerTranslatedAnswer) || lowerTranslatedAnswer.includes(lowerOption)) {
       // Prefer shorter matches (more specific)
       if (!substringMatch || optionText.length < substringMatch.length) {
         substringMatch = optionText;
