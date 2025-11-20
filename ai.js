@@ -606,13 +606,8 @@ function getMockAIResponse(question, userData, options) {
     return findInOptions('Yes', options) || 'Yes';
   }
 
-  // If we have an answer and options, try to match it to available options
-  if (answer && options && options.length > 0) {
-    return findInOptions(answer, options);
-  }
-
   // SPECIAL CASE: If answer looks like a relative date (e.g., "trzy miesiące od teraz")
-  // and the question is about dates/availability, parse it to YYYY-MM-DD format
+  // and the question is about dates/availability
   if (answer && typeof answer === 'string') {
     const relativeDatePattern = /(od\s+)?teraz|natychmiast|immediately|miesiąc|miesięcy|miesiące|tydzień|tygodni|tygodnie|dzień|dni|rok|lata|lat|week|month|day|year/i;
     const isDateQuestion = lowerQuestion.includes('dostępność') || lowerQuestion.includes('availability') ||
@@ -620,17 +615,68 @@ function getMockAIResponse(question, userData, options) {
                           lowerQuestion.includes('rozpocz') || lowerQuestion.includes('data');
 
     if (isDateQuestion && relativeDatePattern.test(answer)) {
-      // Try to parse relative date (e.g., "trzy miesiące od teraz" → "2025-02-20")
-      const parsedDate = parseDateFromText(answer);
-      if (parsedDate) {
-        const year = parsedDate.getFullYear();
-        const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
-        const day = String(parsedDate.getDate()).padStart(2, '0');
-        const formattedDate = `${year}-${month}-${day}`;
-        console.log(`[Mock AI] Converted relative date "${answer}" → "${formattedDate}"`);
-        return formattedDate;
+      // Check if options are provided and if they look like time periods (not dates)
+      const hasTimePeriodOptions = options && options.length > 0 &&
+        options.some(opt => /(natychmiast|immediately|tydzień|tygodni|week|weeks|miesiąc|miesiące|month|months|więcej|more)/i.test(opt));
+
+      if (hasTimePeriodOptions) {
+        // Options are time periods like "Natychmiast", "2 tygodnie", "3 miesiące"
+        // Don't convert to date - instead match the time period directly
+        console.log(`[Mock AI] Options are time periods, matching "${answer}" against options:`, options);
+
+        // Try to match the original answer against options
+        const directMatch = findInOptions(answer, options);
+        if (directMatch) {
+          console.log(`[Mock AI] Direct match found: "${directMatch}"`);
+          return directMatch;
+        }
+
+        // If no direct match, try to calculate how many months and match against options
+        const parsedDate = parseDateFromText(answer);
+        if (parsedDate) {
+          const now = new Date();
+          const monthsDiff = (parsedDate.getFullYear() - now.getFullYear()) * 12 +
+                            (parsedDate.getMonth() - now.getMonth());
+
+          console.log(`[Mock AI] Parsed "${answer}" as ${monthsDiff} months from now`);
+
+          // Try to match against option patterns
+          let bestMatch = null;
+          if (monthsDiff <= 0) {
+            bestMatch = options.find(opt => /natychmiast|immediately/i.test(opt));
+          } else if (monthsDiff <= 0.5) {
+            bestMatch = options.find(opt => /2\s*tyg|2\s*week/i.test(opt));
+          } else if (monthsDiff <= 1) {
+            bestMatch = options.find(opt => /1\s*miesiąc|1\s*month/i.test(opt));
+          } else if (monthsDiff <= 3) {
+            bestMatch = options.find(opt => /3\s*miesiąc|3\s*month/i.test(opt));
+          } else {
+            bestMatch = options.find(opt => /(więcej|more|powyżej|above).*3|3.*więcej/i.test(opt));
+          }
+
+          if (bestMatch) {
+            console.log(`[Mock AI] Matched ${monthsDiff} months to option: "${bestMatch}"`);
+            return bestMatch;
+          }
+        }
+      } else {
+        // Options are dates (YYYY-MM-DD) or no options - convert to date format
+        const parsedDate = parseDateFromText(answer);
+        if (parsedDate) {
+          const year = parsedDate.getFullYear();
+          const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+          const day = String(parsedDate.getDate()).padStart(2, '0');
+          const formattedDate = `${year}-${month}-${day}`;
+          console.log(`[Mock AI] Converted relative date "${answer}" → "${formattedDate}"`);
+          return formattedDate;
+        }
       }
     }
+  }
+
+  // If we have an answer and options, try to match it to available options
+  if (answer && options && options.length > 0) {
+    return findInOptions(answer, options);
   }
 
   return answer;
