@@ -626,20 +626,81 @@ async function fillSelectize(selectElement, value, options) {
  */
 async function fillCustomDropdown(element, value) {
   try {
+    // IMPORTANT: First, close any previously opened dropdowns to avoid confusion
+    const openDropdowns = document.querySelectorAll('[role="listbox"]:not([hidden]), [role="menu"]:not([hidden])');
+    if (openDropdowns.length > 0) {
+      console.log(`[Custom Dropdown] Closing ${openDropdowns.length} previously opened dropdown(s)`);
+      // Try to close by clicking escape or clicking outside
+      document.body.click();
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+
     // Click to open dropdown
+    const elementLabel = getQuestionForInput(element);
+    console.log(`[Custom Dropdown] Opening dropdown for "${elementLabel}" (id="${element.id}")`);
     element.click();
 
     // Wait for dropdown to open
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await new Promise(resolve => setTimeout(resolve, 500));
 
-    // Find the dropdown menu
-    const listbox = document.querySelector(`[role="listbox"][aria-labelledby="${element.id}"]`) ||
-                   document.querySelector(`[role="menu"][aria-labelledby="${element.id}"]`) ||
-                   document.querySelector('[role="listbox"]:not([hidden])') ||
-                   document.querySelector('[role="menu"]:not([hidden])');
+    // Find the dropdown menu - try multiple strategies with detailed logging
+    let listbox = null;
+
+    // Strategy 1: Use aria-labelledby
+    if (element.id) {
+      listbox = document.querySelector(`[role="listbox"][aria-labelledby="${element.id}"]`);
+      if (listbox) {
+        console.log(`[Custom Dropdown] ✓ Found listbox via aria-labelledby="${element.id}"`);
+      }
+    }
+
+    // Strategy 2: Use aria-controls
+    if (!listbox) {
+      const ariaControls = element.getAttribute('aria-controls');
+      if (ariaControls) {
+        listbox = document.getElementById(ariaControls);
+        if (listbox) {
+          console.log(`[Custom Dropdown] ✓ Found listbox via aria-controls="${ariaControls}"`);
+        }
+      }
+    }
+
+    // Strategy 3: Find listbox that appeared most recently (after our click)
+    if (!listbox) {
+      const allListboxes = Array.from(document.querySelectorAll('[role="listbox"]:not([hidden]), [role="menu"]:not([hidden])'));
+      console.log(`[Custom Dropdown] Found ${allListboxes.length} visible listbox(es) on page`);
+
+      if (allListboxes.length === 1) {
+        // Only one visible listbox - it must be ours
+        listbox = allListboxes[0];
+        console.log(`[Custom Dropdown] ✓ Using the only visible listbox (id="${listbox.id || 'no-id'}")`);
+      } else if (allListboxes.length > 1) {
+        // Multiple listboxes - try to find the one closest to our button
+        console.warn(`[Custom Dropdown] ⚠ Multiple listboxes found! Trying to find the correct one...`);
+
+        // Try to find listbox that is a descendant of a dialog/popup that appeared
+        const dialogs = document.querySelectorAll('[role="dialog"]:not([hidden]), .popup:not([hidden])');
+        for (const dialog of dialogs) {
+          const dialogListbox = dialog.querySelector('[role="listbox"], [role="menu"]');
+          if (dialogListbox && allListboxes.includes(dialogListbox)) {
+            listbox = dialogListbox;
+            console.log(`[Custom Dropdown] ✓ Found listbox inside dialog (id="${listbox.id || 'no-id'}")`);
+            break;
+          }
+        }
+
+        // If still not found, use the first one but log a warning
+        if (!listbox) {
+          listbox = allListboxes[0];
+          console.warn(`[Custom Dropdown] ⚠ Using first listbox as fallback - this might be wrong!`);
+        }
+      }
+    }
 
     if (!listbox) {
-      console.warn('[Custom Dropdown] Could not find opened listbox');
+      console.warn(`[Custom Dropdown] ✗ Could not find opened listbox for "${elementLabel}"`);
+      // Try to close the dropdown we just opened
+      element.click();
       return false;
     }
 
@@ -650,12 +711,15 @@ async function fillCustomDropdown(element, value) {
       text: opt.textContent.trim()
     }));
 
+    console.log(`[Custom Dropdown] Listbox contains ${options.length} options. First 5:`, options.slice(0, 5).map(o => o.text));
+
     // Fuzzy match value to options
     const optionTexts = options.map(o => o.text);
     const matchedText = fuzzyMatch(value, optionTexts);
 
     if (!matchedText) {
-      console.warn('[Custom Dropdown] No match found for:', value);
+      console.warn(`[Custom Dropdown] ✗ No match for "${value}" in ${options.length} options for "${elementLabel}"`);
+      console.warn(`[Custom Dropdown] Available options:`, optionTexts);
       // Close dropdown
       element.click();
       return false;
@@ -665,7 +729,7 @@ async function fillCustomDropdown(element, value) {
     const matchedOption = options.find(o => o.text === matchedText);
     if (matchedOption) {
       matchedOption.element.click();
-      console.log(`[Custom Dropdown] Selected: ${matchedText}`);
+      console.log(`[Custom Dropdown] ✓ Selected "${matchedText}" for "${elementLabel}"`);
 
       // Wait for dropdown to close
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -1007,7 +1071,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           continue;
         }
 
-        // Custom dropdowns
+        // Custom dropdowns (LEGACY: aria-haspopup="dialog")
+        // Note: Newer custom dropdowns are handled by fillCustomDropdown() in individual processing
         if (element.tagName === 'BUTTON' && element.getAttribute('aria-haspopup') === 'dialog') {
           const question = getQuestionForInput(element);
           if (!question) {
@@ -1018,19 +1083,10 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           let filled = false;  // Track if we successfully filled this
 
           try {
-            console.log(`[Gemini Filler] Processing custom dropdown: "${question}"`);
+            console.log(`[Gemini Filler] Processing custom dropdown (dialog): "${question}"`);
 
-            const result = await getAIResponse(question, userData, null);
-            const answer = result.answer;
-            const answerSource = result.source;
-
-            if (!answer) {
-              console.log(`[Gemini Filler] Custom dropdown: no answer for "${question}"`);
-              continue;  // Don't mark as processed - let second pass retry
-            }
-
-            console.log(`[Gemini Filler] Custom dropdown: got answer "${answer}" from ${answerSource}`);
-
+            // IMPORTANT: Open dropdown FIRST to get options, THEN call getAIResponse with options
+            // This allows smart date-to-timeperiod conversion in getMockAIResponse
             element.click();
             await new Promise(resolve => setTimeout(resolve, 1000));
 
@@ -1047,16 +1103,22 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
             console.log(`[Gemini Filler] Custom dropdown: found ${optionsInDialog.length} options in dialog`);
 
-            // Debug: Show first 10 options to see format
             const optionsText = optionsInDialog.map(o => o.textContent.trim());
-            const first10 = optionsText.slice(0, 10);
-            console.log(`[Gemini Filler] Custom dropdown: first 10 options:`, first10);
+            console.log(`[Gemini Filler] Custom dropdown: first 10 options:`, optionsText.slice(0, 10));
 
-            // Debug: Find options containing "poland" or "polska"
-            const polandOptions = optionsText.filter(o =>
-              o.toLowerCase().includes('poland') || o.toLowerCase().includes('polska')
-            );
-            console.log(`[Gemini Filler] Custom dropdown: options containing "poland"/"polska":`, polandOptions);
+            // NOW get AI response with options so date conversion works correctly
+            const result = await getAIResponse(question, userData, optionsText);
+            const answer = result.answer;
+            const answerSource = result.source;
+
+            if (!answer) {
+              console.log(`[Gemini Filler] Custom dropdown: no answer for "${question}"`);
+              // Close dropdown before continuing
+              element.click();
+              continue;  // Don't mark as processed - let second pass retry
+            }
+
+            console.log(`[Gemini Filler] Custom dropdown: got answer "${answer}" from ${answerSource}`);
 
             const bestMatch = findBestMatch(answer, optionsText);
             console.log(`[Gemini Filler] Custom dropdown: findBestMatch("${answer}") -> "${bestMatch}"`);
