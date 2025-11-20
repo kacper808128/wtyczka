@@ -355,7 +355,18 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
             console.log(`[Gemini Filler] Custom dropdown: found ${optionsInDialog.length} options in dialog`);
 
-            const bestMatch = findBestMatch(answer, optionsInDialog.map(o => o.textContent));
+            // Debug: Show first 10 options to see format
+            const optionsText = optionsInDialog.map(o => o.textContent.trim());
+            const first10 = optionsText.slice(0, 10);
+            console.log(`[Gemini Filler] Custom dropdown: first 10 options:`, first10);
+
+            // Debug: Find options containing "poland" or "polska"
+            const polandOptions = optionsText.filter(o =>
+              o.toLowerCase().includes('poland') || o.toLowerCase().includes('polska')
+            );
+            console.log(`[Gemini Filler] Custom dropdown: options containing "poland"/"polska":`, polandOptions);
+
+            const bestMatch = findBestMatch(answer, optionsText);
             console.log(`[Gemini Filler] Custom dropdown: findBestMatch("${answer}") -> "${bestMatch}"`);
 
             if (bestMatch) {
