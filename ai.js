@@ -67,6 +67,7 @@ async function getAIResponse(question, userData, options) {
     try {
       console.log('[Gemini Filler] No mock answer, trying AI...');
       const aiAnswer = await getRealAIResponse(question, userData, apiKey, options);
+      console.log(`[Gemini Filler] AI response for "${question}": "${aiAnswer}"`);
       return { answer: aiAnswer, source: 'ai' };
     } catch (error) {
       // If AI fails (timeout, error, etc.), return empty (skip field)

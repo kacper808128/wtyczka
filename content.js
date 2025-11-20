@@ -633,13 +633,20 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           aChangeWasMade = true;
         }
 
+        // Log successful filling
+        if (aChangeWasMade) {
+          console.log(`[Gemini Filler] Individual processing: filled "${question}" = "${answer}" (source: ${answerSource})`);
+        }
+
         // Capture the question and answer for learning
-        if (typeof captureQuestion === 'function' && answer) {
+        if (typeof captureQuestion === 'function' && answer && answerSource === 'ai') {
           try {
             // captureQuestion now returns questionHash
             const capturedHash = await captureQuestion(element, answer);
             if (capturedHash && !questionHash) {
               questionHash = capturedHash;
+              console.log(`%c[SYSTEM UCZENIA] 💾 Zapisano pytanie: "${question}" → "${answer}"`, 'color: purple; font-weight: bold;');
+              console.log(`%c   Kliknij 👍/👎 obok pola żeby zwiększyć pewność odpowiedzi!`, 'color: purple;');
             }
           } catch (err) {
             console.warn('[Gemini Filler] Error capturing question for learning:', err);
