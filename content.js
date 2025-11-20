@@ -177,8 +177,10 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
     // Check for placeholder patterns like "-- Wybierz --", "Select", etc.
     const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
     if (placeholderPatterns.test(trimmed)) return true;
+    // Check for AI's "I don't know" type responses in parentheses
+    if (trimmed.startsWith('(') && trimmed.endsWith(')')) return true;
     // Check for AI's "I don't know" type responses
-    const invalidResponsePatterns = /(not available|please provide|information is not|brak danych|nie ma informacji)/i;
+    const invalidResponsePatterns = /(not available|please provide|information is not|cannot be answered|cannot be determined|brak danych|nie ma informacji|requires.*free-text|provided data)/i;
     if (invalidResponsePatterns.test(trimmed)) return true;
     return false;
   };
