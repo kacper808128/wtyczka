@@ -259,31 +259,8 @@ function detectFieldType(element) {
     return metadata;
   }
 
-  // DATEPICKER detection
-  const dateIndicators = [
-    'date', 'calendar', 'picker', 'datepicker', 'data', 'fecha', 'datum',
-    'dostępność', 'availability', 'start', 'end', 'birth', 'urodzenia'
-  ];
-
-  const hasDateClass = element.className && dateIndicators.some(ind =>
-    element.className.toLowerCase().includes(ind)
-  );
-  const hasDateId = element.id && dateIndicators.some(ind =>
-    element.id.toLowerCase().includes(ind)
-  );
-  const hasDatePlaceholder = element.placeholder && dateIndicators.some(ind =>
-    element.placeholder.toLowerCase().includes(ind)
-  );
-  const hasDateType = element.type === 'date' || element.type === 'datetime-local';
-  const hasDatePattern = element.pattern && /date|dd|mm|yyyy/i.test(element.pattern);
-
-  if (hasDateClass || hasDateId || hasDatePlaceholder || hasDateType || hasDatePattern) {
-    metadata.type = 'datepicker';
-    metadata.format = element.placeholder || 'YYYY-MM-DD';
-    return metadata;
-  }
-
   // CUSTOM DROPDOWN detection (div-based selects)
+  // Check this BEFORE datepicker to avoid false positives on fields with "data" in class names
   const dropdownIndicators = [
     element.getAttribute('role') === 'combobox',
     element.getAttribute('role') === 'listbox',
@@ -322,6 +299,31 @@ function detectFieldType(element) {
       metadata.options = Array.from(optionElements).map(opt => opt.textContent.trim()).filter(Boolean);
       console.log(`[Field Detection] Found ${metadata.options.length} options for custom dropdown "${element.id}"`);
     }
+    return metadata;
+  }
+
+  // DATEPICKER detection
+  // Exclude common false positives like "gender" by checking more strictly
+  const dateIndicators = [
+    'date', 'calendar', 'picker', 'datepicker', 'fecha', 'datum',
+    'dostępność', 'availability', 'birth', 'urodzenia'
+  ];
+
+  const hasDateClass = element.className && dateIndicators.some(ind =>
+    element.className.toLowerCase().includes(ind)
+  );
+  const hasDateId = element.id && dateIndicators.some(ind =>
+    element.id.toLowerCase().includes(ind)
+  );
+  const hasDatePlaceholder = element.placeholder && dateIndicators.some(ind =>
+    element.placeholder.toLowerCase().includes(ind)
+  );
+  const hasDateType = element.type === 'date' || element.type === 'datetime-local';
+  const hasDatePattern = element.pattern && /date|dd|mm|yyyy/i.test(element.pattern);
+
+  if (hasDateClass || hasDateId || hasDatePlaceholder || hasDateType || hasDatePattern) {
+    metadata.type = 'datepicker';
+    metadata.format = element.placeholder || 'YYYY-MM-DD';
     return metadata;
   }
 
@@ -379,7 +381,46 @@ function fuzzyMatch(answer, options) {
     'full-time': ['pełny etat', 'full time', 'full-time', 'pełen etat'],
     'part-time': ['część etatu', 'part time', 'part-time', 'niepełny etat'],
     'b2b': ['b2b', 'kontrakt', 'contract', 'samozatrudnienie'],
-    'uop': ['umowa o pracę', 'uop', 'employment contract']
+    'uop': ['umowa o pracę', 'uop', 'employment contract'],
+    // Country name translations (Polish ↔ English)
+    'poland': ['polska', 'poland', 'pl'],
+    'germany': ['niemcy', 'germany', 'de'],
+    'france': ['francja', 'france', 'fr'],
+    'spain': ['hiszpania', 'spain', 'es'],
+    'italy': ['włochy', 'italy', 'it'],
+    'united kingdom': ['wielka brytania', 'united kingdom', 'uk', 'great britain'],
+    'united states': ['stany zjednoczone', 'united states', 'usa', 'us', 'america'],
+    'netherlands': ['holandia', 'netherlands', 'nl'],
+    'belgium': ['belgia', 'belgium', 'be'],
+    'switzerland': ['szwajcaria', 'switzerland', 'ch'],
+    'austria': ['austria', 'austria', 'at'],
+    'czech republic': ['czechy', 'czech republic', 'czechia', 'cz'],
+    'sweden': ['szwecja', 'sweden', 'se'],
+    'norway': ['norwegia', 'norway', 'no'],
+    'denmark': ['dania', 'denmark', 'dk'],
+    'finland': ['finlandia', 'finland', 'fi'],
+    'ireland': ['irlandia', 'ireland', 'ie'],
+    'portugal': ['portugalia', 'portugal', 'pt'],
+    'greece': ['grecja', 'greece', 'gr'],
+    'hungary': ['węgry', 'hungary', 'hu'],
+    'romania': ['rumunia', 'romania', 'ro'],
+    'bulgaria': ['bułgaria', 'bulgaria', 'bg'],
+    'croatia': ['chorwacja', 'croatia', 'hr'],
+    'slovakia': ['słowacja', 'slovakia', 'sk'],
+    'lithuania': ['litwa', 'lithuania', 'lt'],
+    'latvia': ['łotwa', 'latvia', 'lv'],
+    'estonia': ['estonia', 'estonia', 'ee'],
+    'ukraine': ['ukraina', 'ukraine', 'ua'],
+    'russia': ['rosja', 'russia', 'ru'],
+    'canada': ['kanada', 'canada', 'ca'],
+    'australia': ['australia', 'australia', 'au'],
+    'new zealand': ['nowa zelandia', 'new zealand', 'nz'],
+    'japan': ['japonia', 'japan', 'jp'],
+    'china': ['chiny', 'china', 'cn'],
+    'india': ['indie', 'india', 'in'],
+    'brazil': ['brazylia', 'brazil', 'br'],
+    'mexico': ['meksyk', 'mexico', 'mx'],
+    'argentina': ['argentyna', 'argentina', 'ar']
   };
 
   for (const [key, variants] of Object.entries(semanticMappings)) {
@@ -706,7 +747,34 @@ async function fillCustomDropdown(element, value) {
           }
         }
 
-        // If still not found, use the first one but log a warning
+        // If still not found, try spatial proximity - find listbox closest to button
+        if (!listbox) {
+          const buttonRect = element.getBoundingClientRect();
+          let closestDistance = Infinity;
+          let closestListbox = null;
+
+          for (const lb of allListboxes) {
+            const lbRect = lb.getBoundingClientRect();
+
+            // Calculate distance between button and listbox (top-left corners)
+            const distance = Math.sqrt(
+              Math.pow(lbRect.left - buttonRect.left, 2) +
+              Math.pow(lbRect.top - buttonRect.bottom, 2)
+            );
+
+            if (distance < closestDistance) {
+              closestDistance = distance;
+              closestListbox = lb;
+            }
+          }
+
+          if (closestListbox && closestDistance < 500) { // Within 500px
+            listbox = closestListbox;
+            console.log(`[Custom Dropdown] ✓ Found listbox by proximity (${Math.round(closestDistance)}px away, id="${listbox.id || 'no-id'}")`);
+          }
+        }
+
+        // Last resort: use the first one but log a warning
         if (!listbox) {
           listbox = allListboxes[0];
           console.warn(`[Custom Dropdown] ⚠ Using first listbox as fallback - this might be wrong!`);
@@ -723,12 +791,19 @@ async function fillCustomDropdown(element, value) {
 
     // Find all options
     const optionElements = Array.from(listbox.querySelectorAll('[role="option"], [role="menuitem"]'));
-    const options = optionElements.map(opt => ({
-      element: opt,
-      text: opt.textContent.trim()
-    }));
 
-    console.log(`[Custom Dropdown] Listbox contains ${options.length} options. First 5:`, options.slice(0, 5).map(o => o.text));
+    // Deduplicate options by text (some forms have duplicate option elements)
+    const seenTexts = new Set();
+    const options = [];
+    for (const opt of optionElements) {
+      const text = opt.textContent.trim();
+      if (!seenTexts.has(text)) {
+        seenTexts.add(text);
+        options.push({ element: opt, text: text });
+      }
+    }
+
+    console.log(`[Custom Dropdown] Listbox contains ${options.length} unique options (${optionElements.length} total). First 5:`, options.slice(0, 5).map(o => o.text));
 
     // Fuzzy match value to options
     const optionTexts = options.map(o => o.text);
@@ -1867,28 +1942,23 @@ function getQuestionForInput(input) {
       if (label && label.contains(input)) {
          questionText = label.textContent.trim();
          matchStrategy = `4a:parent-label-contains[depth=${depth}, parent=${parentTag}]`;
-         console.log(`[getQuestion DEBUG] Strategy 4a matched: "${questionText}" (label contains input)`);
          break;
       }
 
       const labels = parent.querySelectorAll('label');
-      console.log(`[getQuestion DEBUG] Checking parent at depth ${depth} (${parentTag}): found ${labels.length} labels`);
 
       for(let i = 0; i < labels.length; i++) {
           const l = labels[i];
-          const labelText = l.textContent.trim().substring(0, 50);
 
           if(l.contains(input)) {
             questionText = l.textContent.trim();
             matchStrategy = `4b:label-contains[depth=${depth}, parent=${parentTag}, labelIdx=${i}]`;
-            console.log(`[getQuestion DEBUG] Strategy 4b matched: "${labelText}..." (label ${i} contains input)`);
             break;
           }
 
           if(l.nextElementSibling === input) {
             questionText = l.textContent.trim();
             matchStrategy = `4c:label-nextSibling[depth=${depth}, parent=${parentTag}, labelIdx=${i}]`;
-            console.log(`[getQuestion DEBUG] Strategy 4c matched: "${labelText}..." (label ${i} nextSibling is input)`);
             break;
           }
 
@@ -1896,7 +1966,6 @@ function getQuestionForInput(input) {
           if (l.nextElementSibling && l.nextElementSibling.contains && l.nextElementSibling.contains(input)) {
             questionText = l.textContent.trim();
             matchStrategy = `4d:label-nextSibling-contains[depth=${depth}, parent=${parentTag}, labelIdx=${i}]`;
-            console.log(`[getQuestion DEBUG] Strategy 4d matched: "${labelText}..." (label ${i} nextSibling contains input)`);
             break;
           }
       }
@@ -1915,11 +1984,6 @@ function getQuestionForInput(input) {
   if (!questionText && input.getAttribute('placeholder')) {
     questionText = input.getAttribute('placeholder').trim();
     matchStrategy = '6:placeholder';
-  }
-
-  // Log detailed information about the match
-  if (questionText && matchStrategy) {
-    console.log(`[getQuestion] Element ${input.tagName}${input.id ? '#'+input.id : ''}${input.name ? '[name='+input.name+']' : ''} → Question: "${questionText.substring(0, 80)}" [${matchStrategy}]`);
   }
 
   return questionText;
