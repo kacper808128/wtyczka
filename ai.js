@@ -153,6 +153,13 @@ CV Data (additional information extracted from user's resume):
         if (q.options && q.options.length > 0) {
           questionsList += ` [Type: ${q.type.toUpperCase()}, Options: ${q.options.join(', ')}]`;
         }
+      } else if (q.type === 'selectize') {
+        if (q.options && q.options.length > 0) {
+          questionsList += ` [Type: SELECTIZE, Options: ${q.options.join(', ')}]`;
+        } else {
+          // Selectize with no options - dropdown not opened yet, skip for now
+          questionsList += ` [Type: SELECTIZE - OPTIONS NOT LOADED YET, return empty string ""]`;
+        }
       } else if (q.type === 'datepicker') {
         questionsList += ` [Type: DATEPICKER, Format: YYYY-MM-DD]`;
       } else if (q.type) {
@@ -195,6 +202,13 @@ Questions to answer:
       if (q.type === 'select' || q.type === 'radio') {
         if (q.options && q.options.length > 0) {
           prompt += ` [Type: ${q.type.toUpperCase()}, Options: ${q.options.join(', ')}]`;
+        }
+      } else if (q.type === 'selectize') {
+        if (q.options && q.options.length > 0) {
+          prompt += ` [Type: SELECTIZE, Options: ${q.options.join(', ')}]`;
+        } else {
+          // Selectize with no options - dropdown not opened yet, return empty string
+          prompt += ` [Type: SELECTIZE - OPTIONS NOT LOADED, return ""]`;
         }
       } else if (q.type === 'datepicker') {
         prompt += ` [Type: DATEPICKER, Format: YYYY-MM-DD]`;
@@ -551,8 +565,8 @@ function getMockAIResponse(question, userData, options) {
     answer = findUserDataValue(['experience', 'doświadczenie', 'yearsOfExperience', 'years', 'lata', 'lata doświadczenia']) || '';
   } else if (lowerQuestion.includes('education') || lowerQuestion.includes('wykształcenie')) {
     answer = findUserDataValue(['education', 'wykształcenie', 'edukacja', 'szkoła']) || '';
-  } else if (lowerQuestion.includes('start') || lowerQuestion.includes('rozpocząć') || lowerQuestion.includes('availability') || lowerQuestion.includes('kiedy')) {
-    answer = findUserDataValue(['startDate', 'availability', 'start', 'kiedy', 'od kiedy', 'rozpoczęcie']) || 'Immediately';
+  } else if (lowerQuestion.includes('start') || lowerQuestion.includes('rozpocząć') || lowerQuestion.includes('availability') || lowerQuestion.includes('dostępność') || lowerQuestion.includes('kiedy')) {
+    answer = findUserDataValue(['startDate', 'availability', 'start', 'kiedy', 'od kiedy', 'rozpoczęcie', 'dostępność']) || '';
   } else if (lowerQuestion.includes('salary') || lowerQuestion.includes('wynagrodzenie') || lowerQuestion.includes('pensja')) {
     answer = findUserDataValue(['salary', 'wynagrodzenie', 'expectedSalary', 'pensja', 'oczekiwane wynagrodzenie']) || '';
   } else if (lowerQuestion.includes('location') || lowerQuestion.includes('miasto') || lowerQuestion.includes('lokalizacja') || lowerQuestion.includes('city')) {
@@ -594,7 +608,109 @@ function getMockAIResponse(question, userData, options) {
     return findInOptions(answer, options);
   }
 
+  // SPECIAL CASE: If answer looks like a relative date (e.g., "trzy miesiące od teraz")
+  // and the question is about dates/availability, parse it to YYYY-MM-DD format
+  if (answer && typeof answer === 'string') {
+    const relativeDatePattern = /(od\s+)?teraz|natychmiast|immediately|miesiąc|miesięcy|miesiące|tydzień|tygodni|tygodnie|dzień|dni|rok|lata|lat|week|month|day|year/i;
+    const isDateQuestion = lowerQuestion.includes('dostępność') || lowerQuestion.includes('availability') ||
+                          lowerQuestion.includes('kiedy') || lowerQuestion.includes('start') ||
+                          lowerQuestion.includes('rozpocz') || lowerQuestion.includes('data');
+
+    if (isDateQuestion && relativeDatePattern.test(answer)) {
+      // Try to parse relative date (e.g., "trzy miesiące od teraz" → "2025-02-20")
+      const parsedDate = parseDateFromText(answer);
+      if (parsedDate) {
+        const year = parsedDate.getFullYear();
+        const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+        const day = String(parsedDate.getDate()).padStart(2, '0');
+        const formattedDate = `${year}-${month}-${day}`;
+        console.log(`[Mock AI] Converted relative date "${answer}" → "${formattedDate}"`);
+        return formattedDate;
+      }
+    }
+  }
+
   return answer;
+}
+
+// Date parsing helper (imported from content.js logic)
+function parseDateFromText(text) {
+  if (!text) return null;
+  const textLower = text.toLowerCase().trim();
+
+  // Word to number mapping (Polish and English)
+  const wordToNumber = {
+    'jeden': 1, 'jedna': 1, 'jedno': 1, 'one': 1,
+    'dwa': 2, 'dwie': 2, 'two': 2,
+    'trzy': 3, 'three': 3,
+    'cztery': 4, 'four': 4,
+    'pięć': 5, 'five': 5,
+    'sześć': 6, 'six': 6,
+    'siedem': 7, 'seven': 7,
+    'osiem': 8, 'eight': 8,
+    'dziewięć': 9, 'nine': 9,
+    'dziesięć': 10, 'ten': 10,
+    'jedenaście': 11, 'eleven': 11,
+    'dwanaście': 12, 'twelve': 12
+  };
+
+  const now = new Date();
+
+  // Parse word-based numbers (e.g., "trzy miesiące od teraz")
+  const wordPattern = /(jeden|jedna|jedno|dwa|dwie|trzy|cztery|pięć|sześć|siedem|osiem|dziewięć|dziesięć|jedenaście|dwanaście|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(dni|dzień|day|days|tydzień|tygodni|tygodnie|week|weeks|miesiąc|miesiące|miesięcy|month|months|rok|lata|lat|year|years)/i;
+  const wordMatch = textLower.match(wordPattern);
+
+  if (wordMatch) {
+    const word = wordMatch[1].toLowerCase();
+    const amount = wordToNumber[word] || 1;
+    const unitText = wordMatch[2].toLowerCase();
+
+    let unit;
+    if (/dni|dzień|day|days/i.test(unitText)) unit = 'days';
+    else if (/tydzień|tygodni|tygodnie|week|weeks/i.test(unitText)) unit = 'weeks';
+    else if (/miesiąc|miesiące|miesięcy|month|months/i.test(unitText)) unit = 'months';
+    else if (/rok|lata|lat|year|years/i.test(unitText)) unit = 'years';
+
+    if (unit) {
+      const result = new Date(now);
+      if (unit === 'days') result.setDate(result.getDate() + amount);
+      else if (unit === 'weeks') result.setDate(result.getDate() + (amount * 7));
+      else if (unit === 'months') result.setMonth(result.getMonth() + amount);
+      else if (unit === 'years') result.setFullYear(result.getFullYear() + amount);
+      return result;
+    }
+  }
+
+  // Parse numeric patterns (e.g., "3 months from now")
+  const numericPattern = /(\d+)\s*(dni|dzień|day|days|tydzień|tygodni|tygodnie|week|weeks|miesiąc|miesiące|miesięcy|month|months|rok|lata|lat|year|years)/i;
+  const numericMatch = textLower.match(numericPattern);
+
+  if (numericMatch) {
+    const amount = parseInt(numericMatch[1]);
+    const unitText = numericMatch[2].toLowerCase();
+
+    let unit;
+    if (/dni|dzień|day|days/i.test(unitText)) unit = 'days';
+    else if (/tydzień|tygodni|tygodnie|week|weeks/i.test(unitText)) unit = 'weeks';
+    else if (/miesiąc|miesiące|miesięcy|month|months/i.test(unitText)) unit = 'months';
+    else if (/rok|lata|lat|year|years/i.test(unitText)) unit = 'years';
+
+    if (unit) {
+      const result = new Date(now);
+      if (unit === 'days') result.setDate(result.getDate() + amount);
+      else if (unit === 'weeks') result.setDate(result.getDate() + (amount * 7));
+      else if (unit === 'months') result.setMonth(result.getMonth() + amount);
+      else if (unit === 'years') result.setFullYear(result.getFullYear() + amount);
+      return result;
+    }
+  }
+
+  // "natychmiast" / "immediately" → today
+  if (/natychmiast|immediately|teraz|now|dziś|today/i.test(textLower)) {
+    return now;
+  }
+
+  return null;
 }
 
 // ==================== CV Analysis Functions ====================
