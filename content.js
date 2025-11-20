@@ -170,6 +170,345 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
+// ==================== Field Type Detection & Metadata ====================
+
+/**
+ * Detects the type of a form field
+ * @param {HTMLElement} element - The form element to analyze
+ * @returns {Object} Field metadata { type, options, format, isCustom }
+ */
+function detectFieldType(element) {
+  const metadata = {
+    type: 'text',
+    options: null,
+    format: null,
+    isCustom: false,
+    htmlType: element.type || element.tagName.toLowerCase()
+  };
+
+  // SELECT element
+  if (element.tagName === 'SELECT') {
+    metadata.type = 'select';
+    const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
+    metadata.options = Array.from(element.options)
+      .map(o => o.text.trim())
+      .filter(t => t && !placeholderPatterns.test(t));
+    return metadata;
+  }
+
+  // RADIO buttons (role="radiogroup" or input[type="radio"])
+  if (element.getAttribute('role') === 'radiogroup' || element.type === 'radio') {
+    metadata.type = 'radio';
+    if (element.getAttribute('role') === 'radiogroup') {
+      const radioButtons = element.querySelectorAll('button[role="radio"], input[type="radio"]');
+      metadata.options = Array.from(radioButtons).map(rb => {
+        const label = document.querySelector(`label[for="${rb.id}"]`) ||
+                     rb.closest('div')?.querySelector('label') ||
+                     rb.nextElementSibling;
+        return label ? label.textContent.trim() : rb.getAttribute('aria-label') || rb.value || '';
+      }).filter(t => t);
+    }
+    return metadata;
+  }
+
+  // CHECKBOX
+  if (element.type === 'checkbox') {
+    metadata.type = 'checkbox';
+    return metadata;
+  }
+
+  // DATEPICKER detection
+  const dateIndicators = [
+    'date', 'calendar', 'picker', 'datepicker', 'data', 'fecha', 'datum',
+    'dostępność', 'availability', 'start', 'end', 'birth', 'urodzenia'
+  ];
+
+  const hasDateClass = element.className && dateIndicators.some(ind =>
+    element.className.toLowerCase().includes(ind)
+  );
+  const hasDateId = element.id && dateIndicators.some(ind =>
+    element.id.toLowerCase().includes(ind)
+  );
+  const hasDatePlaceholder = element.placeholder && dateIndicators.some(ind =>
+    element.placeholder.toLowerCase().includes(ind)
+  );
+  const hasDateType = element.type === 'date' || element.type === 'datetime-local';
+  const hasDatePattern = element.pattern && /date|dd|mm|yyyy/i.test(element.pattern);
+
+  if (hasDateClass || hasDateId || hasDatePlaceholder || hasDateType || hasDatePattern) {
+    metadata.type = 'datepicker';
+    metadata.format = element.placeholder || 'YYYY-MM-DD';
+    return metadata;
+  }
+
+  // CUSTOM DROPDOWN detection (div-based selects)
+  const dropdownIndicators = [
+    element.getAttribute('role') === 'combobox',
+    element.getAttribute('role') === 'listbox',
+    element.getAttribute('aria-haspopup') === 'listbox',
+    element.getAttribute('aria-haspopup') === 'menu',
+    element.className && /select|dropdown|combobox|autocomplete/i.test(element.className),
+    element.tagName === 'BUTTON' && element.getAttribute('aria-expanded') !== null
+  ];
+
+  if (dropdownIndicators.some(Boolean)) {
+    metadata.type = 'custom-dropdown';
+    metadata.isCustom = true;
+    // Try to find options if dropdown is already open
+    const listbox = document.querySelector(`[role="listbox"][aria-labelledby="${element.id}"]`) ||
+                   document.querySelector(`[role="menu"][aria-labelledby="${element.id}"]`) ||
+                   element.nextElementSibling?.querySelector('[role="option"]')?.parentElement;
+
+    if (listbox) {
+      const optionElements = listbox.querySelectorAll('[role="option"], [role="menuitem"]');
+      metadata.options = Array.from(optionElements).map(opt => opt.textContent.trim()).filter(Boolean);
+    }
+    return metadata;
+  }
+
+  // TEXTAREA
+  if (element.tagName === 'TEXTAREA') {
+    metadata.type = 'textarea';
+    return metadata;
+  }
+
+  // Default: text input
+  return metadata;
+}
+
+/**
+ * Fuzzy match answer to available options
+ * @param {string} answer - The answer from AI
+ * @param {Array<string>} options - Available options
+ * @returns {string|null} Best matching option or null
+ */
+function fuzzyMatch(answer, options) {
+  if (!answer || !options || options.length === 0) return null;
+
+  const answerLower = answer.toLowerCase().trim();
+
+  // 1. Exact match (case insensitive)
+  const exactMatch = options.find(opt => opt.toLowerCase().trim() === answerLower);
+  if (exactMatch) return exactMatch;
+
+  // 2. Substring match (answer contains option or vice versa)
+  const substringMatch = options.find(opt => {
+    const optLower = opt.toLowerCase().trim();
+    return answerLower.includes(optLower) || optLower.includes(answerLower);
+  });
+  if (substringMatch) return substringMatch;
+
+  // 3. Word overlap (count matching words)
+  const answerWords = answerLower.split(/\s+/).filter(w => w.length > 2);
+  const optionScores = options.map(opt => {
+    const optWords = opt.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const matches = answerWords.filter(aw => optWords.some(ow => ow.includes(aw) || aw.includes(ow)));
+    return { option: opt, score: matches.length };
+  });
+
+  const bestMatch = optionScores.reduce((best, curr) =>
+    curr.score > best.score ? curr : best
+  );
+
+  if (bestMatch.score > 0) return bestMatch.option;
+
+  // 4. Semantic matching for common cases
+  const semanticMappings = {
+    'remote': ['zdalnie', 'zdalna', 'remote', 'remotely', 'home office'],
+    'hybrid': ['hybrydowo', 'hybrydowa', 'hybrid', 'częściowo zdalnie'],
+    'office': ['stacjonarnie', 'stacjonarna', 'office', 'on-site', 'biuro'],
+    'full-time': ['pełny etat', 'full time', 'full-time', 'pełen etat'],
+    'part-time': ['część etatu', 'part time', 'part-time', 'niepełny etat'],
+    'b2b': ['b2b', 'kontrakt', 'contract', 'samozatrudnienie'],
+    'uop': ['umowa o pracę', 'uop', 'employment contract']
+  };
+
+  for (const [key, variants] of Object.entries(semanticMappings)) {
+    if (variants.some(v => answerLower.includes(v))) {
+      const match = options.find(opt => variants.some(v => opt.toLowerCase().includes(v)));
+      if (match) return match;
+    }
+  }
+
+  // No match found
+  console.log(`[Fuzzy Match] No match for "${answer}" in options:`, options);
+  return null;
+}
+
+/**
+ * Parse date from natural language text
+ * @param {string} text - Natural language date ("za 3 miesiące", "three months from now", etc.)
+ * @returns {Date|null} Parsed date or null
+ */
+function parseDateFromText(text) {
+  if (!text) return null;
+
+  const textLower = text.toLowerCase().trim();
+
+  // Try to parse as ISO date first
+  const isoMatch = textLower.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    return new Date(isoMatch[0]);
+  }
+
+  // Try to parse DD/MM/YYYY or MM/DD/YYYY
+  const dateMatch = textLower.match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
+  if (dateMatch) {
+    // Assume DD/MM/YYYY for European formats
+    return new Date(dateMatch[3], dateMatch[2] - 1, dateMatch[1]);
+  }
+
+  const now = new Date();
+
+  // Parse "X days/weeks/months/years from now"
+  const futurePatterns = [
+    { pattern: /(\d+)\s*(dni|day|days|dzień|dni)/i, unit: 'days' },
+    { pattern: /(\d+)\s*(tydzień|tygodni|week|weeks)/i, unit: 'weeks' },
+    { pattern: /(\d+)\s*(miesiąc|miesiące|miesięcy|month|months)/i, unit: 'months' },
+    { pattern: /(\d+)\s*(rok|lata|lat|year|years)/i, unit: 'years' }
+  ];
+
+  for (const { pattern, unit } of futurePatterns) {
+    const match = textLower.match(pattern);
+    if (match) {
+      const amount = parseInt(match[1]);
+      const result = new Date(now);
+
+      switch (unit) {
+        case 'days':
+          result.setDate(result.getDate() + amount);
+          break;
+        case 'weeks':
+          result.setDate(result.getDate() + (amount * 7));
+          break;
+        case 'months':
+          result.setMonth(result.getMonth() + amount);
+          break;
+        case 'years':
+          result.setFullYear(result.getFullYear() + amount);
+          break;
+      }
+
+      return result;
+    }
+  }
+
+  // Special cases
+  if (/natychmiast|immediately|asap|now/i.test(textLower)) {
+    return now;
+  }
+
+  if (/jutro|tomorrow/i.test(textLower)) {
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow;
+  }
+
+  console.log(`[Date Parser] Could not parse date from: "${text}"`);
+  return null;
+}
+
+/**
+ * Fill a datepicker field
+ * @param {HTMLElement} element - The datepicker input element
+ * @param {Date|string} dateValue - Date object or string to fill
+ */
+function fillDatepicker(element, dateValue) {
+  let date = dateValue;
+
+  if (typeof dateValue === 'string') {
+    date = parseDateFromText(dateValue);
+  }
+
+  if (!date || !(date instanceof Date) || isNaN(date)) {
+    console.warn('[Datepicker] Invalid date:', dateValue);
+    return false;
+  }
+
+  // Format date as YYYY-MM-DD for HTML5 date inputs
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const formattedDate = `${year}-${month}-${day}`;
+
+  try {
+    // Set value
+    element.value = formattedDate;
+
+    // Trigger events
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    element.dispatchEvent(new Event('blur', { bubbles: true }));
+
+    console.log(`[Datepicker] Filled with date: ${formattedDate}`);
+    return true;
+  } catch (error) {
+    console.error('[Datepicker] Error filling:', error);
+    return false;
+  }
+}
+
+/**
+ * Fill a custom dropdown (div-based select)
+ * @param {HTMLElement} element - The dropdown trigger element
+ * @param {string} value - Value to select
+ * @returns {Promise<boolean>} Success status
+ */
+async function fillCustomDropdown(element, value) {
+  try {
+    // Click to open dropdown
+    element.click();
+
+    // Wait for dropdown to open
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Find the dropdown menu
+    const listbox = document.querySelector(`[role="listbox"][aria-labelledby="${element.id}"]`) ||
+                   document.querySelector(`[role="menu"][aria-labelledby="${element.id}"]`) ||
+                   document.querySelector('[role="listbox"]:not([hidden])') ||
+                   document.querySelector('[role="menu"]:not([hidden])');
+
+    if (!listbox) {
+      console.warn('[Custom Dropdown] Could not find opened listbox');
+      return false;
+    }
+
+    // Find all options
+    const optionElements = Array.from(listbox.querySelectorAll('[role="option"], [role="menuitem"]'));
+    const options = optionElements.map(opt => ({
+      element: opt,
+      text: opt.textContent.trim()
+    }));
+
+    // Fuzzy match value to options
+    const optionTexts = options.map(o => o.text);
+    const matchedText = fuzzyMatch(value, optionTexts);
+
+    if (!matchedText) {
+      console.warn('[Custom Dropdown] No match found for:', value);
+      // Close dropdown
+      element.click();
+      return false;
+    }
+
+    // Find and click the matched option
+    const matchedOption = options.find(o => o.text === matchedText);
+    if (matchedOption) {
+      matchedOption.element.click();
+      console.log(`[Custom Dropdown] Selected: ${matchedText}`);
+
+      // Wait for dropdown to close
+      await new Promise(resolve => setTimeout(resolve, 200));
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error('[Custom Dropdown] Error:', error);
+    return false;
+  }
+}
+
 async function fillFormWithAI(userData, processedElements = new Set(), depth = 0, isRetry = false, missingFields = null) {
   console.log(`[Gemini Filler] fillFormWithAI called: depth=${depth}, isRetry=${isRetry}, missingFields=${missingFields ? `array[${missingFields.length}]` : 'null'}`);
 
@@ -223,7 +562,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
     const batchElements = [];
     const batchMetadata = []; // Store element metadata
 
-    // Collect all questions
+    // Collect all questions with metadata
     for (const element of formElements) {
       if (processedElements.has(element)) continue;
       if (!document.contains(element)) continue;
@@ -236,35 +575,24 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       const question = getQuestionForInput(element);
       if (!question) continue;
 
-      let optionsText = null;
-      try {
-        if (element.tagName === 'SELECT') {
-          // Filter out placeholder options (like "-- Wybierz --", "Select", etc.)
-          const placeholderPatterns = /^(--|select|choose|wybierz|seleccione|wählen)/i;
-          optionsText = Array.from(element.options)
-            .map(o => o.text)
-            .filter(t => t.trim() && !placeholderPatterns.test(t.trim()));
-        } else if (element.getAttribute('role') === 'radiogroup') {
-          const radioButtons = element.querySelectorAll('button[role="radio"]');
-          optionsText = Array.from(radioButtons).map(rb => {
-            const label = document.querySelector(`label[for="${rb.id}"]`) || rb.closest('div')?.querySelector('label');
-            return label ? label.textContent.trim() : rb.getAttribute('aria-label') || '';
-          }).filter(t => t);
-        } else if (element.tagName === 'BUTTON' && element.getAttribute('aria-haspopup') === 'dialog') {
-          // Custom dropdown - we'll handle these individually later
-          continue;
-        }
-      } catch (error) {
-        console.warn('[Gemini Filler] Error extracting options:', error);
+      // Detect field type and metadata
+      const fieldMetadata = detectFieldType(element);
+
+      // Skip custom dropdowns in batch - they need individual handling
+      if (fieldMetadata.type === 'custom-dropdown') {
         continue;
       }
 
+      console.log(`[Gemini Filler] Field "${question}" detected as type: ${fieldMetadata.type}`, fieldMetadata);
+
       batchQuestions.push({
         question: question,
-        options: optionsText
+        options: fieldMetadata.options,
+        type: fieldMetadata.type,
+        format: fieldMetadata.format
       });
       batchElements.push(element);
-      batchMetadata.push({ optionsText });
+      batchMetadata.push(fieldMetadata);
     }
 
     if (batchQuestions.length > 0) {
@@ -350,9 +678,10 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
           let filled = false;  // Track if we actually filled the field
 
-          if (element.tagName === 'SELECT') {
-            const bestMatchText = findBestMatch(answer, metadata.optionsText);
-            console.log(`[Gemini Filler] findBestMatch("${answer}") -> "${bestMatchText}" from ${metadata.optionsText?.length || 0} options`);
+          // Handle different field types
+          if (metadata.type === 'select') {
+            const bestMatchText = fuzzyMatch(answer, metadata.options);
+            console.log(`[Gemini Filler] fuzzyMatch("${answer}") -> "${bestMatchText}" from ${metadata.options?.length || 0} options`);
             if (bestMatchText) {
               const bestMatchOption = Array.from(element.options).find(o => o.text === bestMatchText);
               if (bestMatchOption) {
@@ -384,9 +713,9 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 console.warn(`[Gemini Filler] Matched text "${bestMatchText}" but option not found in SELECT`);
               }
             } else {
-              console.warn(`[Gemini Filler] findBestMatch failed for answer "${answer}" in SELECT with ${metadata.optionsText?.length} options`);
+              console.warn(`[Gemini Filler] fuzzyMatch failed for answer "${answer}" in SELECT with ${metadata.options?.length} options`);
             }
-          } else if (element.getAttribute('role') === 'radiogroup') {
+          } else if (metadata.type === 'radio' && element.getAttribute('role') === 'radiogroup') {
             const radioButtons = Array.from(element.querySelectorAll('button[role="radio"]'));
             const optionDetails = radioButtons.map(rb => {
               const label = document.querySelector(`label[for="${rb.id}"]`) || rb.closest('div')?.querySelector('label');
@@ -396,8 +725,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               };
             });
 
-            const bestMatchText = findBestMatch(answer, optionDetails.map(o => o.text));
-            console.log(`[Gemini Filler] findBestMatch("${answer}") -> "${bestMatchText}" for radiogroup with ${optionDetails.length} options`);
+            const bestMatchText = fuzzyMatch(answer, optionDetails.map(o => o.text));
+            console.log(`[Gemini Filler] fuzzyMatch("${answer}") -> "${bestMatchText}" for radiogroup with ${optionDetails.length} options`);
             if (bestMatchText) {
               const matchingOption = optionDetails.find(o => o.text === bestMatchText);
               if (matchingOption) {
@@ -408,7 +737,16 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 console.warn(`[Gemini Filler] Matched text "${bestMatchText}" but radio button not found`);
               }
             } else {
-              console.warn(`[Gemini Filler] findBestMatch failed for answer "${answer}" in radiogroup with ${optionDetails.length} options`);
+              console.warn(`[Gemini Filler] fuzzyMatch failed for answer "${answer}" in radiogroup with ${optionDetails.length} options`);
+            }
+          } else if (metadata.type === 'datepicker') {
+            // Handle datepicker
+            const success = fillDatepicker(element, answer);
+            if (success) {
+              aChangeWasMade = true;
+              filled = true;
+            } else {
+              console.warn(`[Gemini Filler] Failed to fill datepicker with: "${answer}"`);
             }
           } else {
             // Text input, textarea, etc.
@@ -663,22 +1001,9 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         continue;
       }
 
-      let optionsText = null;
-
-      try {
-        if (element.tagName === 'SELECT') {
-          optionsText = Array.from(element.options).map(o => o.text);
-        } else if (element.getAttribute('role') === 'radiogroup') {
-          const radioButtons = element.querySelectorAll('button[role="radio"]');
-          optionsText = Array.from(radioButtons).map(rb => {
-            const label = document.querySelector(`label[for="${rb.id}"]`) || rb.closest('div')?.querySelector('label');
-            return label ? label.textContent.trim() : rb.getAttribute('aria-label') || '';
-          });
-        }
-      } catch (error) {
-        console.warn('[Gemini Filler] Error extracting options for element:', error);
-        continue;
-      }
+      // Detect field type and metadata
+      const fieldMetadata = detectFieldType(element);
+      const optionsText = fieldMetadata.options;
 
       let answer;
       let questionHash = null;
@@ -720,8 +1045,9 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       }
 
       try {
-        if (element.tagName === 'SELECT') {
-          const bestMatchText = findBestMatch(answer, optionsText);
+        // Handle different field types
+        if (fieldMetadata.type === 'select') {
+          const bestMatchText = fuzzyMatch(answer, optionsText);
           if (bestMatchText) {
             const bestMatchOption = Array.from(element.options).find(o => o.text === bestMatchText);
             if (bestMatchOption) {
@@ -736,34 +1062,13 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               aChangeWasMade = true;
             }
           }
-        } else if (element.tagName === 'BUTTON' && element.getAttribute('aria-haspopup') === 'dialog') {
-          try {
-            element.click();
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            const dialogId = element.getAttribute('aria-controls');
-            let optionsInDialog = [];
-            if (dialogId) {
-              const dialog = document.getElementById(dialogId);
-              if (dialog) {
-                optionsInDialog = Array.from(dialog.querySelectorAll('[role="option"]'));
-              }
-            } else {
-              optionsInDialog = Array.from(document.querySelectorAll('[role="option"]'));
-            }
-
-            const bestMatch = findBestMatch(answer, optionsInDialog.map(o => o.textContent));
-            if (bestMatch) {
-              const bestMatchElement = optionsInDialog.find(o => o.textContent === bestMatch);
-              if (bestMatchElement) {
-                bestMatchElement.click();
-                aChangeWasMade = true;
-              }
-            }
-          } catch (e) {
-            console.error(`[Gemini Filler] Could not fill custom dropdown for "${question}":`, e);
+        } else if (fieldMetadata.type === 'custom-dropdown') {
+          // Use new custom dropdown handler
+          const success = await fillCustomDropdown(element, answer);
+          if (success) {
+            aChangeWasMade = true;
           }
-        } else if (element.getAttribute('role') === 'radiogroup') {
+        } else if (fieldMetadata.type === 'radio' && element.getAttribute('role') === 'radiogroup') {
           const radioButtons = Array.from(element.querySelectorAll('button[role="radio"]'));
           const optionDetails = radioButtons.map(rb => {
             const label = document.querySelector(`label[for="${rb.id}"]`) || rb.closest('div')?.querySelector('label');
@@ -773,7 +1078,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             };
           });
 
-          const bestMatchText = findBestMatch(answer, optionDetails.map(o => o.text));
+          const bestMatchText = fuzzyMatch(answer, optionDetails.map(o => o.text));
           if (bestMatchText) {
             const matchingOption = optionDetails.find(o => o.text === bestMatchText);
             if (matchingOption) {
@@ -781,7 +1086,13 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               aChangeWasMade = true;
             }
           }
+        } else if (fieldMetadata.type === 'datepicker') {
+          const success = fillDatepicker(element, answer);
+          if (success) {
+            aChangeWasMade = true;
+          }
         } else {
+          // Text input, textarea, etc.
           element.value = answer;
           await new Promise(resolve => setTimeout(resolve, 200));
           const inputEvent = new Event('input', { bubbles: true });

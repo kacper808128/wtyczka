@@ -103,13 +103,15 @@ async function getBatchAIResponse(questions, userData) {
     return result;
   }
 
-  // Check if CV data should be used
+  // Check if CV data and custom prompt should be used
   const settings = await new Promise(resolve => {
-    chrome.storage.local.get(['useCvData', 'cvAnalyzedData'], resolve);
+    chrome.storage.local.get(['useCvData', 'cvAnalyzedData', 'useCustomPrompt', 'customPrompt'], resolve);
   });
 
   const useCvData = settings.useCvData || false;
   const cvData = settings.cvAnalyzedData;
+  const useCustomPrompt = settings.useCustomPrompt || false;
+  const customPrompt = settings.customPrompt || '';
 
   // Build context data string
   let contextData = `User data (contains information in both Polish and English):
@@ -134,8 +136,43 @@ CV Data (additional information extracted from user's resume):
 - Certifications: ${cvData.certifications?.join(', ') || 'N/A'}`;
   }
 
-  // Build batch prompt
-  let prompt = `You are an expert recruitment form filler. Your task is to match each question to the best answer from user data, or select the best option from provided choices.
+  // Build batch prompt - use custom or default
+  let prompt;
+
+  if (useCustomPrompt && customPrompt) {
+    // Use custom prompt with variable substitution
+    prompt = customPrompt;
+
+    // Build questions list for substitution
+    let questionsList = 'Questions to answer:\n';
+    questions.forEach((q, idx) => {
+      questionsList += `${idx}. ${q.question}`;
+
+      // Add type information
+      if (q.type === 'select' || q.type === 'radio') {
+        if (q.options && q.options.length > 0) {
+          questionsList += ` [Type: ${q.type.toUpperCase()}, Options: ${q.options.join(', ')}]`;
+        }
+      } else if (q.type === 'datepicker') {
+        questionsList += ` [Type: DATEPICKER, Format: YYYY-MM-DD]`;
+      } else if (q.type) {
+        questionsList += ` [Type: ${q.type.toUpperCase()}]`;
+      } else if (q.options && q.options.length > 0) {
+        // Fallback for questions with options but no type
+        questionsList += ` [Options: ${q.options.join(', ')}]`;
+      }
+
+      questionsList += '\n';
+    });
+
+    // Substitute variables
+    prompt = prompt.replace(/\{contextData\}/g, contextData);
+    prompt = prompt.replace(/\{questions\}/g, questionsList);
+
+    console.log('[Gemini Filler] Using custom prompt');
+  } else {
+    // Default prompt
+    prompt = `You are an expert recruitment form filler. Your task is to match each question to the best answer from user data, or select the best option from provided choices.
 
 ${contextData}
 
@@ -143,22 +180,35 @@ MATCHING GUIDELINES:
 - Questions may be in Polish or English
 - userData fields may have Polish keys (e.g., "Imię i nazwisko", "Wykształcenie", "Doświadczenie")
 - Match concepts, not exact words (e.g., "Education level" = "Wykształcenie", "Years of experience" = "Lata doświadczenia")
-- For dropdown questions with [Options], you MUST return one of the exact option texts
+- For SELECT and RADIO questions with [Options], you MUST return one of the exact option texts
+- For DATEPICKER questions, return date in YYYY-MM-DD format (e.g., "2025-03-15")
 - If user data has a related value but it's not in the options list, find the closest matching option
 - Use your judgment to match semantic meaning across languages
 
 Questions to answer:
 `;
 
-  questions.forEach((q, idx) => {
-    prompt += `${idx}. ${q.question}`;
-    if (q.options && q.options.length > 0) {
-      prompt += ` [Options: ${q.options.join(', ')}]`;
-    }
-    prompt += '\n';
-  });
+    questions.forEach((q, idx) => {
+      prompt += `${idx}. ${q.question}`;
 
-  prompt += `
+      // Add type information
+      if (q.type === 'select' || q.type === 'radio') {
+        if (q.options && q.options.length > 0) {
+          prompt += ` [Type: ${q.type.toUpperCase()}, Options: ${q.options.join(', ')}]`;
+        }
+      } else if (q.type === 'datepicker') {
+        prompt += ` [Type: DATEPICKER, Format: YYYY-MM-DD]`;
+      } else if (q.type) {
+        prompt += ` [Type: ${q.type.toUpperCase()}]`;
+      } else if (q.options && q.options.length > 0) {
+        // Fallback for questions with options but no type
+        prompt += ` [Options: ${q.options.join(', ')}]`;
+      }
+
+      prompt += '\n';
+    });
+
+    prompt += `
 CRITICAL INSTRUCTIONS:
 1. Return ONLY a valid JSON object, no other text before or after
 2. Format: {"0": "answer0", "1": "answer1", "2": "answer2", ...}
@@ -171,6 +221,7 @@ CRITICAL INSTRUCTIONS:
 
 Example response:
 {"0": "John Smith", "1": "john@example.com", "2": "3-5 years", "3": "Poland (+48)"}`;
+  }
 
   try {
     console.log(`[Gemini Filler] Batch processing ${questions.length} questions...`);

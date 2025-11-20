@@ -297,6 +297,33 @@
     </div>
 
     <hr style="margin: 20px 0;">
+
+    <div class="form-group" style="margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 8px;">
+      <h3 style="margin-top: 0;">⚙️ Zaawansowane ustawienia AI</h3>
+      <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+        Dostosuj prompt systemowy wysyłany do AI. Zaawansowana funkcja - zmieniaj tylko jeśli wiesz co robisz.
+      </p>
+
+      <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; margin-bottom: 10px;">
+        <input type="checkbox" id="use-custom-prompt" style="width: auto;">
+        <span>Użyj niestandardowego promptu</span>
+      </label>
+
+      <div id="custom-prompt-container" style="display: none;">
+        <label for="custom-prompt">Niestandardowy prompt systemowy:</label>
+        <textarea
+          id="custom-prompt"
+          style="width: 100%; min-height: 200px; font-family: monospace; font-size: 0.9em; padding: 10px; margin-top: 5px;"
+          placeholder="Wpisz swój niestandardowy prompt AI..."
+        ></textarea>
+        <p style="font-size: 0.85em; color: #999; margin-top: 5px;">
+          💡 Zmienne dostępne w prompcie: {contextData}, {questions}<br>
+          📝 Domyślny prompt będzie używany jeśli to pole jest puste
+        </p>
+      </div>
+    </div>
+
+    <hr style="margin: 20px 0;">
     <button id="save">Zapisz zmiany</button>
     <p id="status"></p>
   </div>
