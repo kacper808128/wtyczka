@@ -53,9 +53,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function fillFormWithAI(userData, processedElements = new Set(), depth = 0, isRetry = false, missingFields = null) {
+  console.log(`[Gemini Filler] fillFormWithAI called: depth=${depth}, isRetry=${isRetry}, missingFields=${missingFields ? `array[${missingFields.length}]` : 'null'}`);
+
   // Track missing fields only on first call (depth 0)
   if (depth === 0 && !missingFields) {
     missingFields = [];
+    console.log('[Gemini Filler] Initialized missingFields array');
   }
 
   // Prevent infinite recursion
@@ -166,11 +169,15 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             console.log(`[Gemini Filler] No mock fallback either, will retry in second pass`);
             // Track this as potentially missing data
             if (missingFields && depth === 0) {
+              console.log(`[Gemini Filler] Adding to missingFields: "${batchQuestions[i].question}" (depth=${depth}, missingFields.length before=${missingFields.length})`);
               missingFields.push({
                 question: batchQuestions[i].question,
                 reason: 'Brak danych w bazie wiedzy',
                 element: element
               });
+              console.log(`[Gemini Filler] missingFields.length after=${missingFields.length}`);
+            } else {
+              console.log(`[Gemini Filler] NOT adding to missingFields: missingFields=${missingFields ? 'exists' : 'null'}, depth=${depth}`);
             }
             continue;  // Don't add to processedElements - let second pass retry with full AI
           }
@@ -187,7 +194,11 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             if (bestMatchText) {
               const bestMatchOption = Array.from(element.options).find(o => o.text === bestMatchText);
               if (bestMatchOption) {
+                const oldValue = element.value;
                 element.value = bestMatchOption.value;
+                element.selectedIndex = bestMatchOption.index;
+                console.log(`[Gemini Filler] SELECT: set value from "${oldValue}" to "${element.value}", selectedIndex=${element.selectedIndex}, text="${bestMatchOption.text}"`);
+
                 // Add delay before events to prevent stack overflow
                 await new Promise(resolve => setTimeout(resolve, 200));
                 const inputEvent = new Event('input', { bubbles: true });
@@ -196,6 +207,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 changeEvent._autofilledByExtension = true;
                 element.dispatchEvent(inputEvent);
                 element.dispatchEvent(changeEvent);
+                console.log(`[Gemini Filler] SELECT: dispatched input+change events, current value="${element.value}"`);
                 aChangeWasMade = true;
                 filled = true;
               } else {
@@ -660,13 +672,19 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
     }
 
     // Show summary of missing fields if any
+    console.log(`[Gemini Filler] Checking missing fields summary: missingFields=${missingFields ? 'exists' : 'null'}, length=${missingFields?.length || 0}`);
     if (missingFields && missingFields.length > 0) {
+      console.log(`[Gemini Filler] Displaying missing fields summary for ${missingFields.length} fields:`, missingFields.map(f => f.question));
       showMissingFieldsSummary(missingFields, userData);
+    } else {
+      console.log('[Gemini Filler] No missing fields to display, or missingFields is empty');
     }
   }
 }
 
 function showMissingFieldsSummary(missingFields, userData) {
+  console.log('[Gemini Filler] showMissingFieldsSummary called with:', missingFields);
+
   // Remove duplicates based on question
   const uniqueFields = [];
   const seen = new Set();
@@ -678,7 +696,11 @@ function showMissingFieldsSummary(missingFields, userData) {
     }
   }
 
-  if (uniqueFields.length === 0) return;
+  console.log(`[Gemini Filler] After deduplication: ${uniqueFields.length} unique fields`);
+  if (uniqueFields.length === 0) {
+    console.log('[Gemini Filler] No unique fields to display, returning');
+    return;
+  }
 
   // Create summary message
   let message = '⚠️ PODSUMOWANIE WYPEŁNIANIA FORMULARZA\n\n';
@@ -706,12 +728,16 @@ function showMissingFieldsSummary(missingFields, userData) {
   }
 
   // Create styled modal instead of basic alert
+  console.log('[Gemini Filler] Creating summary modal...');
   const modal = createSummaryModal(uniqueFields, suggestions);
+  console.log('[Gemini Filler] Appending modal to document.body');
   document.body.appendChild(modal);
+  console.log('[Gemini Filler] Modal appended successfully');
 
   // Auto-close after 30 seconds
   setTimeout(() => {
     if (modal && modal.parentNode) {
+      console.log('[Gemini Filler] Auto-closing modal after 30s');
       modal.remove();
     }
   }, 30000);
