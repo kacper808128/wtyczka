@@ -299,8 +299,14 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             continue;  // Don't add to processedElements - let second pass retry with full AI
           }
         } else {
-          // Answer came from batch AI (not mock fallback)
-          answerSource = 'ai';
+          // Answer came from batch AI - check if it's actually from userData
+          const isFromUserData = Object.values(userData).some(val =>
+            val && val.toString().toLowerCase() === answer.toLowerCase()
+          );
+          answerSource = isFromUserData ? 'mock' : 'ai';
+          if (isFromUserData) {
+            console.log(`[Gemini Filler] Answer "${answer}" found in userData, marking as mock`);
+          }
         }
 
         try {
