@@ -359,12 +359,16 @@ function fuzzyMatch(answer, options) {
   if (exactMatch) return exactMatch;
 
   // 2. Substring match (answer contains option or vice versa)
+  // Require minimum 4 characters to avoid false positives with short fragments
   const substringMatch = options.find(opt => {
     // Skip non-string options
     if (typeof opt !== 'string') return false;
 
     const optLower = opt.toLowerCase().trim();
-    return answerLower.includes(optLower) || optLower.includes(answerLower);
+    // Only match if substring is at least 4 characters long
+    if (answerLower.length >= 4 && optLower.includes(answerLower)) return true;
+    if (optLower.length >= 4 && answerLower.includes(optLower)) return true;
+    return false;
   });
   if (substringMatch) return substringMatch;
 
