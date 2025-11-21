@@ -1740,15 +1740,11 @@ function showMissingFieldsSummary(missingFields, userData, filledFields, totalFi
   }
 
   console.log(`[Gemini Filler] After deduplication: ${uniqueFields.length} unique fields`);
-  if (uniqueFields.length === 0) {
-    console.log('[Gemini Filler] No unique fields to display, returning');
-    return;
-  }
 
-  // Suggest specific fields to add
-  const suggestions = getSuggestedFields(uniqueFields);
+  // Suggest specific fields to add (only if there are missing fields)
+  const suggestions = uniqueFields.length > 0 ? getSuggestedFields(uniqueFields) : [];
 
-  // Create styled modal instead of basic alert
+  // Create styled modal - ALWAYS show it (even for 100% completion)
   console.log('[Gemini Filler] Creating summary modal...');
   const modal = createSummaryModal(uniqueFields, suggestions, filledFields, totalFields, elapsedTime);
   console.log('[Gemini Filler] Appending modal to document.body');
