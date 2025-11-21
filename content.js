@@ -1357,6 +1357,11 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 // Angular ng-select
                 '.ng-dropdown-panel .ng-option',
                 'ng-dropdown-panel ng-option',
+                // Custom address/location controls (e.g., Google Places alternatives)
+                '.addressControl > div > div.text-truncate',
+                '.addressControl .text-truncate',
+                '[class*="address"] .text-truncate',
+                '[class*="location"] .text-truncate',
                 // Bootstrap / generic
                 '.dropdown-menu li',
                 '.dropdown-menu a',
@@ -1378,6 +1383,9 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 '[class*="autocomplete"] li',
                 '[class*="suggestion"] li',
                 '[class*="result"] li',
+                // Text-truncate items (common pattern for location dropdowns)
+                '.text-truncate[style*="cursor: pointer"]',
+                '.text-truncate[style*="cursor"]',
                 // List items in any visible overlay
                 '.overlay li',
                 '.popup li',
