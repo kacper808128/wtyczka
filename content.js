@@ -1307,17 +1307,43 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             }
           } else {
             // Text input, textarea, etc.
-            element.value = answer;
-            await new Promise(resolve => setTimeout(resolve, 200));
-            const inputEvent = new Event('input', { bubbles: true });
+            // Use native setter for React/Vue/Angular compatibility
+            const isInput = element.tagName === 'INPUT';
+            const isTextarea = element.tagName === 'TEXTAREA';
+
+            if (isInput || isTextarea) {
+              // Get native value setter (works with React/Vue/Angular)
+              const prototype = isInput ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype;
+              const nativeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+
+              if (nativeValueSetter) {
+                nativeValueSetter.call(element, answer);
+              } else {
+                element.value = answer;
+              }
+            } else {
+              element.value = answer;
+            }
+
+            // Focus the element first (helps with some frameworks)
+            element.focus();
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Dispatch events in the correct order for framework compatibility
+            const inputEvent = new Event('input', { bubbles: true, cancelable: true });
             inputEvent._autofilledByExtension = true;
-            const changeEvent = new Event('change', { bubbles: true });
-            changeEvent._autofilledByExtension = true;
             element.dispatchEvent(inputEvent);
+
+            const changeEvent = new Event('change', { bubbles: true, cancelable: true });
+            changeEvent._autofilledByExtension = true;
             element.dispatchEvent(changeEvent);
+
+            // Also dispatch blur to trigger validation
+            element.blur();
+
             aChangeWasMade = true;
             filled = true;
-            console.log(`[Gemini Filler] Filled text input with: "${answer}"`);
+            console.log(`[Gemini Filler] Filled text input with: "${answer}" (native setter: ${!!Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set})`);
           }
 
           // Only mark as processed if we actually filled it
