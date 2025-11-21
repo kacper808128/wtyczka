@@ -1307,17 +1307,43 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             }
           } else {
             // Text input, textarea, etc.
-            element.value = answer;
-            await new Promise(resolve => setTimeout(resolve, 200));
-            const inputEvent = new Event('input', { bubbles: true });
+            // Use native setter for React/Vue/Angular compatibility
+            const isInput = element.tagName === 'INPUT';
+            const isTextarea = element.tagName === 'TEXTAREA';
+
+            if (isInput || isTextarea) {
+              // Get native value setter (works with React/Vue/Angular)
+              const prototype = isInput ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype;
+              const nativeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+
+              if (nativeValueSetter) {
+                nativeValueSetter.call(element, answer);
+              } else {
+                element.value = answer;
+              }
+            } else {
+              element.value = answer;
+            }
+
+            // Focus the element first (helps with some frameworks)
+            element.focus();
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Dispatch events in the correct order for framework compatibility
+            const inputEvent = new Event('input', { bubbles: true, cancelable: true });
             inputEvent._autofilledByExtension = true;
-            const changeEvent = new Event('change', { bubbles: true });
-            changeEvent._autofilledByExtension = true;
             element.dispatchEvent(inputEvent);
+
+            const changeEvent = new Event('change', { bubbles: true, cancelable: true });
+            changeEvent._autofilledByExtension = true;
             element.dispatchEvent(changeEvent);
+
+            // Also dispatch blur to trigger validation
+            element.blur();
+
             aChangeWasMade = true;
             filled = true;
-            console.log(`[Gemini Filler] Filled text input with: "${answer}"`);
+            console.log(`[Gemini Filler] Filled text input with: "${answer}" (native setter: ${!!Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set})`);
           }
 
           // Only mark as processed if we actually filled it
@@ -1349,10 +1375,23 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       }
     }
 
-    // Now handle special types individually
+    // Now handle special types individually (file, radio, checkbox)
+    const checkboxes = Array.from(formElements).filter(el => el.type === 'checkbox');
+    console.log(`[Gemini Filler] Special types loop: found ${checkboxes.length} checkboxes in formElements`);
+
     for (const element of formElements) {
-      if (processedElements.has(element)) continue;
-      if (!document.contains(element)) continue;
+      if (processedElements.has(element)) {
+        if (element.type === 'checkbox') {
+          console.log(`[Gemini Filler] Checkbox already processed, skipping: id="${element.id}"`);
+        }
+        continue;
+      }
+      if (!document.contains(element)) {
+        if (element.type === 'checkbox') {
+          console.log(`[Gemini Filler] Checkbox not in DOM, skipping: id="${element.id}"`);
+        }
+        continue;
+      }
 
       try {
         if (element.type === 'file') {
@@ -1395,6 +1434,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
         }
 
         if (element.type === 'checkbox') {
+          console.log(`[Gemini Filler] Found checkbox in special types loop: id="${element.id}", name="${element.name}", checked=${element.checked}`);
           await handleCheckbox(element, userData);
           processedElements.add(element);
           continue;
@@ -2493,13 +2533,52 @@ function getRadioGroupLabel(radioElement) {
 async function handleCheckbox(checkboxElement, userData) {
   try {
     const question = getQuestionForInput(checkboxElement);
-    if (!question) {
+
+    // Get additional context from checkbox's surrounding area
+    const parentText = checkboxElement.closest('label, div, li')?.textContent?.toLowerCase() || '';
+    const checkboxName = (checkboxElement.name || '').toLowerCase();
+    const checkboxId = (checkboxElement.id || '').toLowerCase();
+
+    console.log(`[Gemini Filler] Processing checkbox: question="${question}", name="${checkboxName}", id="${checkboxId}"`);
+
+    // Required consent checkboxes - auto-accept privacy policy, terms, regulations
+    const requiredConsentKeywords = [
+      'regulamin', 'polityka prywatności', 'polityki prywatności', 'privacy policy',
+      'terms', 'warunki', 'zgoda', 'consent', 'akceptuję', 'accept',
+      'zapoznałem', 'oświadczam', 'przyjmuję do wiadomości', 'acknowledge',
+      'przetwarzanie danych', 'data processing', 'rodo', 'gdpr'
+    ];
+
+    const isRequiredConsent = requiredConsentKeywords.some(keyword =>
+      (question && question.toLowerCase().includes(keyword)) ||
+      parentText.includes(keyword) ||
+      checkboxName.includes(keyword) ||
+      checkboxId.includes(keyword)
+    );
+
+    // Check if checkbox is required
+    const isRequired = checkboxElement.required ||
+                       checkboxElement.closest('[class*="required"]') !== null ||
+                       checkboxElement.getAttribute('aria-required') === 'true';
+
+    if (isRequiredConsent || (isRequired && !question)) {
+      // Auto-check required consent/regulatory checkboxes
+      if (!checkboxElement.checked) {
+        console.log(`[Gemini Filler] Auto-checking required consent checkbox: "${question || parentText.slice(0, 50)}..."`);
+        checkboxElement.checked = true;
+        checkboxElement.dispatchEvent(new Event('change', { bubbles: true }));
+        checkboxElement.dispatchEvent(new Event('input', { bubbles: true }));
+        checkboxElement.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      }
       return;
     }
 
-    console.log(`[Gemini Filler] Processing checkbox: "${question}"`);
+    if (!question) {
+      console.log(`[Gemini Filler] Checkbox has no question, skipping AI decision`);
+      return;
+    }
 
-    // For checkboxes, we ask AI if this should be checked (yes/no question)
+    // For other checkboxes, ask AI
     const modifiedQuestion = `Should the following be checked/enabled? ${question}`;
 
     let answer;
@@ -2523,7 +2602,8 @@ async function handleCheckbox(checkboxElement, userData) {
     if (shouldCheck !== checkboxElement.checked) {
       checkboxElement.checked = shouldCheck;
       checkboxElement.dispatchEvent(new Event('change', { bubbles: true }));
-      checkboxElement.dispatchEvent(new Event('click', { bubbles: true }));
+      checkboxElement.dispatchEvent(new Event('input', { bubbles: true }));
+      checkboxElement.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
       console.log(`[Gemini Filler] Checkbox "${question}" set to: ${shouldCheck}`);
     }
