@@ -1342,28 +1342,66 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
               // Dispatch input event to trigger autocomplete
               element.dispatchEvent(new InputEvent('input', { bubbles: true, data: answer, inputType: 'insertText' }));
-              await new Promise(resolve => setTimeout(resolve, 500)); // Wait for dropdown
+              await new Promise(resolve => setTimeout(resolve, 800)); // Wait for dropdown (longer for Angular)
 
               // Try to find and click a matching option in dropdown
               const dropdownSelectors = [
+                // Standard ARIA
                 '[role="listbox"] [role="option"]',
                 '[role="menu"] [role="menuitem"]',
+                // Angular Material
+                'mat-option',
+                '.mat-option',
+                '.mat-autocomplete-panel mat-option',
+                '.cdk-overlay-pane mat-option',
+                // Angular ng-select
+                '.ng-dropdown-panel .ng-option',
+                'ng-dropdown-panel ng-option',
+                // Custom address/location controls (e.g., Google Places alternatives)
+                '.addressControl > div > div.text-truncate',
+                '.addressControl .text-truncate',
+                '[class*="address"] .text-truncate',
+                '[class*="location"] .text-truncate',
+                // Bootstrap / generic
                 '.dropdown-menu li',
+                '.dropdown-menu a',
+                '.dropdown-item',
+                // Autocomplete results
                 '.autocomplete-results li',
+                '.autocomplete-suggestion',
                 '.suggestions li',
-                '.pac-container .pac-item', // Google Places
+                '.suggestion-item',
+                '.typeahead li',
+                '.typeahead-result',
+                // Google Places
+                '.pac-container .pac-item',
+                // Generic patterns
                 '[class*="dropdown"] [class*="option"]',
                 '[class*="dropdown"] li',
-                '[class*="menu"] li'
+                '[class*="dropdown"] a',
+                '[class*="menu"] li',
+                '[class*="autocomplete"] li',
+                '[class*="suggestion"] li',
+                '[class*="result"] li',
+                // Text-truncate items (common pattern for location dropdowns)
+                '.text-truncate[style*="cursor: pointer"]',
+                '.text-truncate[style*="cursor"]',
+                // List items in any visible overlay
+                '.overlay li',
+                '.popup li',
+                '[class*="popup"] li',
+                '[class*="overlay"] li'
               ];
 
               let optionClicked = false;
+              const answerLower = answer.toLowerCase();
+
+              // First, try known selectors
               for (const selector of dropdownSelectors) {
                 const options = document.querySelectorAll(selector);
                 if (options.length > 0) {
                   console.log(`[Gemini Filler] Found ${options.length} dropdown options with selector: ${selector}`);
                   // Find best matching option
-                  const answerLower = answer.toLowerCase();
                   for (const opt of options) {
                     const optText = opt.textContent?.toLowerCase() || '';
                     if (optText.includes(answerLower) || answerLower.includes(optText.split(',')[0])) {
@@ -1383,7 +1421,49 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 }
               }
 
+              // Fallback: Look for any visible element containing our answer text that appeared
               if (!optionClicked) {
+                console.log(`[Gemini Filler] Known selectors failed, trying dynamic search...`);
+
+                // Find all visible clickable elements that contain our answer
+                const allElements = document.querySelectorAll('li, div[role], span[role], a, button, [class*="item"], [class*="option"], [class*="result"]');
+                const candidates = [];
+
+                for (const el of allElements) {
+                  const text = el.textContent?.toLowerCase() || '';
+                  const rect = el.getBoundingClientRect();
+                  // Element must be visible and contain our search term
+                  if (rect.width > 0 && rect.height > 0 && rect.height < 100 &&
+                      (text.includes(answerLower) || answerLower.includes(text.trim().split(',')[0]))) {
+                    // Check if it's in a dropdown-like container (absolute/fixed positioned or in overlay)
+                    const style = window.getComputedStyle(el.parentElement || el);
+                    const parentRect = (el.parentElement || el).getBoundingClientRect();
+                    if (style.position === 'absolute' || style.position === 'fixed' ||
+                        parentRect.top > element.getBoundingClientRect().bottom - 10) {
+                      candidates.push({ el, text: el.textContent, rect });
+                    }
+                  }
+                }
+
+                if (candidates.length > 0) {
+                  console.log(`[Gemini Filler] Found ${candidates.length} candidate elements via dynamic search`);
+                  // Sort by y position (prefer elements right below the input)
+                  candidates.sort((a, b) => a.rect.top - b.rect.top);
+                  console.log(`[Gemini Filler] Clicking dynamic candidate: "${candidates[0].text}"`);
+                  candidates[0].el.click();
+                  optionClicked = true;
+                }
+              }
+
+              if (!optionClicked) {
+                // Log what dropdowns exist for debugging
+                const possibleDropdowns = document.querySelectorAll('[class*="dropdown"]:not([style*="display: none"]), [class*="menu"]:not([style*="display: none"]), [class*="list"]:not([style*="display: none"]), [class*="popup"]:not([style*="display: none"]), [class*="overlay"]:not([style*="display: none"])');
+                if (possibleDropdowns.length > 0) {
+                  console.log(`[Gemini Filler] Debug: Found ${possibleDropdowns.length} potential dropdown containers:`);
+                  possibleDropdowns.forEach((d, i) => {
+                    if (i < 3) console.log(`[Gemini Filler] Debug dropdown ${i}: class="${d.className}", children=${d.children.length}`);
+                  });
+                }
                 console.log(`[Gemini Filler] No dropdown found, keeping typed value`);
               }
 
