@@ -563,8 +563,21 @@ function viewCVData() {
         if (data.experience && data.experience.length > 0) {
             html += `<div class="card" style="margin-bottom: 15px;">
                 <h3 style="margin-top: 0; color: var(--primary);">💼 Doswiadczenie (${data.experience.length})</h3>
-                <ul style="margin: 0; padding-left: 20px;">
-                    ${data.experience.map(exp => `<li style="margin-bottom: 8px;">${escapeHtml(exp)}</li>`).join('')}
+                <ul style="margin: 0; padding-left: 20px; list-style: none;">
+                    ${data.experience.map(exp => {
+                        if (typeof exp === 'object') {
+                            const role = exp.role || exp.position || exp.title || '';
+                            const company = exp.company || exp.employer || '';
+                            const period = exp.startDate || exp.period || '';
+                            const endDate = exp.endDate ? ` - ${exp.endDate}` : '';
+                            return `<li style="margin-bottom: 12px; padding: 10px; background: var(--bg-secondary); border-radius: 8px;">
+                                <strong style="color: var(--text-primary);">${escapeHtml(role)}</strong>
+                                ${company ? `<br><span style="color: var(--text-secondary);">🏢 ${escapeHtml(company)}</span>` : ''}
+                                ${period ? `<br><span style="font-size: 12px; color: var(--text-muted);">📅 ${escapeHtml(period)}${escapeHtml(endDate)}</span>` : ''}
+                            </li>`;
+                        }
+                        return `<li style="margin-bottom: 8px;">${escapeHtml(String(exp))}</li>`;
+                    }).join('')}
                 </ul>
             </div>`;
         }
@@ -573,7 +586,10 @@ function viewCVData() {
             html += `<div class="card" style="margin-bottom: 15px;">
                 <h3 style="margin-top: 0; color: var(--primary);">🛠️ Umiejetnosci (${data.skills.length})</h3>
                 <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-                    ${data.skills.map(skill => `<span style="background: var(--primary-alpha); color: var(--primary); padding: 4px 12px; border-radius: 20px; font-size: 13px;">${escapeHtml(skill)}</span>`).join('')}
+                    ${data.skills.map(skill => {
+                        const skillText = typeof skill === 'object' ? (skill.name || skill.skill || JSON.stringify(skill)) : String(skill);
+                        return `<span style="background: var(--primary-alpha); color: var(--primary); padding: 4px 12px; border-radius: 20px; font-size: 13px;">${escapeHtml(skillText)}</span>`;
+                    }).join('')}
                 </div>
             </div>`;
         }
@@ -581,8 +597,21 @@ function viewCVData() {
         if (data.education && data.education.length > 0) {
             html += `<div class="card" style="margin-bottom: 15px;">
                 <h3 style="margin-top: 0; color: var(--primary);">🎓 Wyksztalcenie (${data.education.length})</h3>
-                <ul style="margin: 0; padding-left: 20px;">
-                    ${data.education.map(edu => `<li style="margin-bottom: 8px;">${escapeHtml(edu)}</li>`).join('')}
+                <ul style="margin: 0; padding-left: 20px; list-style: none;">
+                    ${data.education.map(edu => {
+                        if (typeof edu === 'object') {
+                            const degree = edu.degree || edu.level || '';
+                            const field = edu.field || edu.major || edu.specialization || '';
+                            const institution = edu.institution || edu.school || edu.university || '';
+                            const year = edu.year || edu.graduationYear || edu.endDate || '';
+                            return `<li style="margin-bottom: 12px; padding: 10px; background: var(--bg-secondary); border-radius: 8px;">
+                                <strong style="color: var(--text-primary);">${escapeHtml(degree)}${field ? ` - ${escapeHtml(field)}` : ''}</strong>
+                                ${institution ? `<br><span style="color: var(--text-secondary);">🏫 ${escapeHtml(institution)}</span>` : ''}
+                                ${year ? `<br><span style="font-size: 12px; color: var(--text-muted);">📅 ${escapeHtml(String(year))}</span>` : ''}
+                            </li>`;
+                        }
+                        return `<li style="margin-bottom: 8px;">${escapeHtml(String(edu))}</li>`;
+                    }).join('')}
                 </ul>
             </div>`;
         }
@@ -591,7 +620,32 @@ function viewCVData() {
             html += `<div class="card" style="margin-bottom: 15px;">
                 <h3 style="margin-top: 0; color: var(--primary);">🌍 Jezyki (${data.languages.length})</h3>
                 <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-                    ${data.languages.map(lang => `<span style="background: var(--bg-tertiary); padding: 4px 12px; border-radius: 20px; font-size: 13px;">${escapeHtml(lang)}</span>`).join('')}
+                    ${data.languages.map(lang => {
+                        let langText = '';
+                        if (typeof lang === 'object') {
+                            langText = lang.language || lang.name || '';
+                            if (lang.level || lang.proficiency) {
+                                langText += ` (${lang.level || lang.proficiency})`;
+                            }
+                        } else {
+                            langText = String(lang);
+                        }
+                        return `<span style="background: var(--bg-tertiary); padding: 4px 12px; border-radius: 20px; font-size: 13px;">${escapeHtml(langText)}</span>`;
+                    }).join('')}
+                </div>
+            </div>`;
+        }
+
+        // Show personal info if available
+        if (data.personalInfo || data.contact) {
+            const info = data.personalInfo || data.contact;
+            html += `<div class="card" style="margin-bottom: 15px;">
+                <h3 style="margin-top: 0; color: var(--primary);">👤 Dane osobowe</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                    ${info.name ? `<div><strong>Imie:</strong> ${escapeHtml(info.name)}</div>` : ''}
+                    ${info.email ? `<div><strong>Email:</strong> ${escapeHtml(info.email)}</div>` : ''}
+                    ${info.phone ? `<div><strong>Telefon:</strong> ${escapeHtml(info.phone)}</div>` : ''}
+                    ${info.location ? `<div><strong>Lokalizacja:</strong> ${escapeHtml(info.location)}</div>` : ''}
                 </div>
             </div>`;
         }
