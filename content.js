@@ -1040,7 +1040,38 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
     return;
   }
 
-  // First, handle custom upload buttons (div-based resume upload buttons)
+  // FIRST: Process all file inputs for CV attachment BEFORE custom buttons
+  // This ensures file inputs have files before we check if custom buttons should be clicked
+  const fileInputsFirst = document.querySelectorAll('input[type="file"]');
+  for (const fileInput of fileInputsFirst) {
+    if (processedElements.has(fileInput)) continue;
+    if (!document.contains(fileInput)) continue;
+
+    const question = getQuestionForInput(fileInput);
+    const inputName = fileInput.name?.toLowerCase() || '';
+    const inputId = fileInput.id?.toLowerCase() || '';
+    const accept = fileInput.accept?.toLowerCase() || '';
+
+    // Get container text for additional context
+    const container = fileInput.closest('.js-drag-and-drop, .drag-and-drop, .file-upload, .upload-container, [class*="upload"], [class*="file"], [class*="attachment"]') ||
+                     fileInput.parentElement?.parentElement?.parentElement;
+    const containerText = container?.textContent?.toLowerCase().substring(0, 200) || '';
+
+    const combinedText = `${question || ''} ${inputName} ${inputId} ${containerText}`.toLowerCase();
+    const keywords = ['cv', 'resume', 'życiorys', 'załącz', 'plik', 'upload', 'file', 'dokument', 'document', 'lebenslauf', 'attachment', 'add document', 'dodaj'];
+    const fileTypeIndicators = ['.doc', '.pdf', 'docx', 'pdf,', 'docx,'];
+
+    const hasKeyword = keywords.some(kw => combinedText.includes(kw));
+    const acceptsResume = fileTypeIndicators.some(ft => accept.includes(ft));
+
+    if (hasKeyword || acceptsResume) {
+      console.log(`[Gemini Filler] Early file input processing: question="${question}", name="${inputName}"`);
+      await handleFileInput(fileInput);
+      processedElements.add(fileInput);
+    }
+  }
+
+  // THEN: Handle custom upload buttons (only if no file was attached above)
   await handleCustomResumeButtons(processedElements);
 
   let formElements;
