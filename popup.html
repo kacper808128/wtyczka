@@ -1,16 +1,412 @@
 <!DOCTYPE html>
-<html>
+<html lang="pl">
 <head>
   <meta charset="UTF-8">
   <title>Recruitment Form Filler</title>
   <style>
-    body { width: 300px; padding: 10px; }
-    button { width: 100%; padding: 10px; margin-bottom: 10px; }
+    :root {
+      --primary: #4CAF50;
+      --primary-dark: #388E3C;
+      --primary-light: #81C784;
+      --secondary: #2196F3;
+      --danger: #F44336;
+      --warning: #FF9800;
+      --bg-light: #ffffff;
+      --bg-dark: #1a1a2e;
+      --card-light: #f8f9fa;
+      --card-dark: #16213e;
+      --text-light: #333333;
+      --text-dark: #e8e8e8;
+      --text-muted-light: #666666;
+      --text-muted-dark: #a0a0a0;
+      --border-light: #e0e0e0;
+      --border-dark: #2a2a4a;
+      --shadow-light: rgba(0, 0, 0, 0.1);
+      --shadow-dark: rgba(0, 0, 0, 0.3);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 320px;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg-light);
+      color: var(--text-light);
+      transition: all 0.3s ease;
+    }
+
+    body.dark-mode {
+      background: var(--bg-dark);
+      color: var(--text-dark);
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      padding: 20px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .header::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 60%);
+      animation: pulse 4s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 0.5; }
+      50% { transform: scale(1.1); opacity: 0.3; }
+    }
+
+    .logo {
+      font-size: 28px;
+      margin-bottom: 5px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .header h1 {
+      color: white;
+      font-size: 16px;
+      font-weight: 600;
+      position: relative;
+      z-index: 1;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+
+    .header p {
+      color: rgba(255,255,255,0.85);
+      font-size: 11px;
+      margin-top: 3px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Theme Toggle */
+    .theme-toggle {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(255,255,255,0.2);
+      border: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: all 0.3s ease;
+      z-index: 10;
+    }
+
+    .theme-toggle:hover {
+      background: rgba(255,255,255,0.3);
+      transform: rotate(20deg);
+    }
+
+    /* Content */
+    .content {
+      padding: 20px;
+    }
+
+    /* Status Card */
+    .status-card {
+      background: var(--card-light);
+      border-radius: 12px;
+      padding: 12px 15px;
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 1px solid var(--border-light);
+      transition: all 0.3s ease;
+    }
+
+    body.dark-mode .status-card {
+      background: var(--card-dark);
+      border-color: var(--border-dark);
+    }
+
+    .status-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .status-indicator.ready {
+      background: var(--primary);
+      box-shadow: 0 0 8px var(--primary);
+      animation: glow 2s ease-in-out infinite;
+    }
+
+    .status-indicator.warning {
+      background: var(--warning);
+      box-shadow: 0 0 8px var(--warning);
+    }
+
+    .status-indicator.error {
+      background: var(--danger);
+      box-shadow: 0 0 8px var(--danger);
+    }
+
+    @keyframes glow {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    .status-text {
+      font-size: 12px;
+      color: var(--text-muted-light);
+    }
+
+    body.dark-mode .status-text {
+      color: var(--text-muted-dark);
+    }
+
+    .status-text strong {
+      color: var(--text-light);
+      display: block;
+      font-size: 13px;
+    }
+
+    body.dark-mode .status-text strong {
+      color: var(--text-dark);
+    }
+
+    /* Buttons */
+    .btn {
+      width: 100%;
+      padding: 14px 20px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 0;
+      height: 0;
+      background: rgba(255,255,255,0.2);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      transition: width 0.6s ease, height 0.6s ease;
+    }
+
+    .btn:active::after {
+      width: 300px;
+      height: 300px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: white;
+      box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+      margin-bottom: 10px;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    .btn-primary:disabled {
+      background: #ccc;
+      box-shadow: none;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-secondary {
+      background: var(--card-light);
+      color: var(--text-light);
+      border: 1px solid var(--border-light);
+    }
+
+    body.dark-mode .btn-secondary {
+      background: var(--card-dark);
+      color: var(--text-dark);
+      border-color: var(--border-dark);
+    }
+
+    .btn-secondary:hover {
+      background: var(--border-light);
+      transform: translateY(-2px);
+    }
+
+    body.dark-mode .btn-secondary:hover {
+      background: var(--border-dark);
+    }
+
+    .btn-icon {
+      font-size: 18px;
+    }
+
+    /* Loading Spinner */
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      display: none;
+    }
+
+    .btn.loading .spinner {
+      display: block;
+    }
+
+    .btn.loading .btn-text {
+      display: none;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Footer */
+    .footer {
+      padding: 10px 20px 15px;
+      text-align: center;
+      border-top: 1px solid var(--border-light);
+    }
+
+    body.dark-mode .footer {
+      border-color: var(--border-dark);
+    }
+
+    .footer p {
+      font-size: 10px;
+      color: var(--text-muted-light);
+    }
+
+    body.dark-mode .footer p {
+      color: var(--text-muted-dark);
+    }
+
+    .footer a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* Quick Stats */
+    .quick-stats {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    .stat-item {
+      flex: 1;
+      background: var(--card-light);
+      border-radius: 10px;
+      padding: 10px;
+      text-align: center;
+      border: 1px solid var(--border-light);
+      transition: all 0.3s ease;
+    }
+
+    body.dark-mode .stat-item {
+      background: var(--card-dark);
+      border-color: var(--border-dark);
+    }
+
+    .stat-number {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    .stat-label {
+      font-size: 10px;
+      color: var(--text-muted-light);
+      margin-top: 2px;
+    }
+
+    body.dark-mode .stat-label {
+      color: var(--text-muted-dark);
+    }
   </style>
 </head>
 <body>
-  <button id="fill-form">Wypełnij formularz</button>
-  <button id="open-settings">Ustawienia</button>
+  <div class="header">
+    <button class="theme-toggle" id="theme-toggle" title="Zmien motyw">
+      <span id="theme-icon">🌙</span>
+    </button>
+    <div class="logo">📝</div>
+    <h1>Recruitment Form Filler</h1>
+    <p>Automatyczne wypelnianie formularzy</p>
+  </div>
+
+  <div class="content">
+    <div class="status-card">
+      <div class="status-indicator" id="status-indicator"></div>
+      <div class="status-text">
+        <strong id="status-title">Sprawdzanie...</strong>
+        <span id="status-message">Ladowanie statusu</span>
+      </div>
+    </div>
+
+    <div class="quick-stats">
+      <div class="stat-item">
+        <div class="stat-number" id="stat-questions">-</div>
+        <div class="stat-label">Wyuczone pytania</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-number" id="stat-applications">-</div>
+        <div class="stat-label">Aplikacje</div>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="fill-form">
+      <span class="btn-icon">✨</span>
+      <span class="btn-text">Wypelnij formularz</span>
+      <div class="spinner"></div>
+    </button>
+
+    <button class="btn btn-secondary" id="open-settings">
+      <span class="btn-icon">⚙️</span>
+      <span class="btn-text">Ustawienia</span>
+    </button>
+  </div>
+
+  <div class="footer">
+    <p>v1.0 &bull; <a href="#" id="help-link">Pomoc</a></p>
+  </div>
 
   <script src="popup.js"></script>
 </body>

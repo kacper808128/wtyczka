@@ -13,6 +13,58 @@ const useCustomPromptCheckbox = document.getElementById('use-custom-prompt');
 const customPromptContainer = document.getElementById('custom-prompt-container');
 const customPromptTextarea = document.getElementById('custom-prompt');
 
+// --- Theme Management ---
+
+function initTheme() {
+  chrome.storage.local.get(['darkMode'], (result) => {
+    if (result.darkMode) {
+      document.body.classList.add('dark-mode');
+      document.getElementById('theme-icon').textContent = '☀️';
+    }
+  });
+}
+
+function toggleTheme() {
+  const isDark = document.body.classList.toggle('dark-mode');
+  document.getElementById('theme-icon').textContent = isDark ? '☀️' : '🌙';
+  chrome.storage.local.set({ darkMode: isDark });
+}
+
+// Theme toggle event listener
+document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+
+// --- File Upload Dropzone ---
+
+function initDropzone() {
+  const dropzone = document.getElementById('cv-dropzone');
+  if (!dropzone) return;
+
+  dropzone.addEventListener('click', () => cvUpload.click());
+
+  dropzone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.style.borderColor = 'var(--primary)';
+    dropzone.style.background = 'var(--primary-alpha)';
+  });
+
+  dropzone.addEventListener('dragleave', () => {
+    dropzone.style.borderColor = '';
+    dropzone.style.background = '';
+  });
+
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.style.borderColor = '';
+    dropzone.style.background = '';
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      cvUpload.files = files;
+      handleCvUpload({ target: cvUpload });
+    }
+  });
+}
+
 // --- Data Management ---
 
 function createDataRow(key = '', value = '') {
@@ -20,8 +72,8 @@ function createDataRow(key = '', value = '') {
   row.className = 'data-row';
   row.innerHTML = `
     <input type="text" class="data-key" placeholder="Klucz (np. firstName)" value="${key}">
-    <input type="text" class="data-value" placeholder="Wartość (np. Jan)" value="${value}">
-    <button class="remove-row">Usuń</button>
+    <input type="text" class="data-value" placeholder="Wartosc (np. Jan)" value="${value}">
+    <button class="btn btn-danger btn-sm remove-row">🗑️</button>
   `;
   dataContainer.appendChild(row);
 
@@ -501,53 +553,72 @@ function viewCVData() {
             return;
         }
 
-        // Create modal with CV data
-        const modal = document.createElement('div');
-        modal.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.5);
-            z-index: 10000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        `;
+        const cvModal = document.getElementById('cv-data-modal');
+        const cvContent = document.getElementById('cv-data-content');
+        const data = result.cvAnalyzedData;
 
-        const content = document.createElement('div');
-        content.style.cssText = `
-            background: white;
-            padding: 30px;
-            border-radius: 8px;
-            max-width: 800px;
-            max-height: 80vh;
-            overflow-y: auto;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-        `;
+        // Build nice formatted content
+        let html = '';
 
-        content.innerHTML = `
-            <h2 style="margin-top: 0;">Dane z CV</h2>
-            <pre style="background: #f5f5f5; padding: 15px; border-radius: 4px; overflow-x: auto; font-size: 0.9em;">${JSON.stringify(result.cvAnalyzedData, null, 2)}</pre>
-            <button id="close-modal" style="margin-top: 15px; padding: 10px 20px;">Zamknij</button>
-        `;
+        if (data.experience && data.experience.length > 0) {
+            html += `<div class="card" style="margin-bottom: 15px;">
+                <h3 style="margin-top: 0; color: var(--primary);">💼 Doswiadczenie (${data.experience.length})</h3>
+                <ul style="margin: 0; padding-left: 20px;">
+                    ${data.experience.map(exp => `<li style="margin-bottom: 8px;">${escapeHtml(exp)}</li>`).join('')}
+                </ul>
+            </div>`;
+        }
 
-        modal.appendChild(content);
-        document.body.appendChild(modal);
+        if (data.skills && data.skills.length > 0) {
+            html += `<div class="card" style="margin-bottom: 15px;">
+                <h3 style="margin-top: 0; color: var(--primary);">🛠️ Umiejetnosci (${data.skills.length})</h3>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    ${data.skills.map(skill => `<span style="background: var(--primary-alpha); color: var(--primary); padding: 4px 12px; border-radius: 20px; font-size: 13px;">${escapeHtml(skill)}</span>`).join('')}
+                </div>
+            </div>`;
+        }
 
-        document.getElementById('close-modal').addEventListener('click', () => {
-            modal.remove();
-        });
+        if (data.education && data.education.length > 0) {
+            html += `<div class="card" style="margin-bottom: 15px;">
+                <h3 style="margin-top: 0; color: var(--primary);">🎓 Wyksztalcenie (${data.education.length})</h3>
+                <ul style="margin: 0; padding-left: 20px;">
+                    ${data.education.map(edu => `<li style="margin-bottom: 8px;">${escapeHtml(edu)}</li>`).join('')}
+                </ul>
+            </div>`;
+        }
 
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                modal.remove();
-            }
-        });
+        if (data.languages && data.languages.length > 0) {
+            html += `<div class="card" style="margin-bottom: 15px;">
+                <h3 style="margin-top: 0; color: var(--primary);">🌍 Jezyki (${data.languages.length})</h3>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    ${data.languages.map(lang => `<span style="background: var(--bg-tertiary); padding: 4px 12px; border-radius: 20px; font-size: 13px;">${escapeHtml(lang)}</span>`).join('')}
+                </div>
+            </div>`;
+        }
+
+        if (data.analyzedAt) {
+            html += `<p style="font-size: 12px; color: var(--text-muted); margin-top: 15px;">
+                📅 Ostatnia analiza: ${new Date(data.analyzedAt).toLocaleString('pl-PL')}
+            </p>`;
+        }
+
+        cvContent.innerHTML = html || '<p>Brak danych do wyswietlenia.</p>';
+        cvModal.classList.add('active');
     });
 }
+
+// CV Modal close handlers
+document.getElementById('cv-modal-close').addEventListener('click', () => {
+    document.getElementById('cv-data-modal').classList.remove('active');
+});
+document.getElementById('cv-modal-ok').addEventListener('click', () => {
+    document.getElementById('cv-data-modal').classList.remove('active');
+});
+document.getElementById('cv-data-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'cv-data-modal') {
+        document.getElementById('cv-data-modal').classList.remove('active');
+    }
+});
 
 
 // --- API Key Management ---
@@ -709,20 +780,20 @@ async function displayLearnedQuestions(searchTerm = '') {
     <div class="question-card" data-hash="${q.question_hash}">
       <div class="question-header">
         <span class="question-text">${escapeHtml(q.question_text)}</span>
-        <span class="confidence-badge" style="background: ${getConfidenceColor(q.confidence)}">
+        <span class="confidence-badge ${getConfidenceColor(q.confidence)}">
           ${Math.round(q.confidence * 100)}%
         </span>
       </div>
       <div class="question-details">
-        <div><strong>Odpowiedź:</strong> <code>${escapeHtml(q.user_answer)}</code></div>
-        <div><strong>Użyto:</strong> ${q.frequency} ${q.frequency === 1 ? 'raz' : 'razy'}</div>
+        <div><strong>Odpowiedz:</strong> <code>${escapeHtml(q.user_answer)}</code></div>
+        <div><strong>Uzyto:</strong> ${q.frequency} ${q.frequency === 1 ? 'raz' : 'razy'}</div>
         <div><strong>Ostatnio:</strong> ${formatDate(q.last_used)}</div>
         <div><strong>Feedback:</strong> 👍 ${q.feedback_positive} / 👎 ${q.feedback_negative}</div>
         <div><strong>Typ pola:</strong> ${q.field_type}</div>
       </div>
       <div class="question-actions">
-        <button class="edit-btn" data-hash="${q.question_hash}">✏️ Edytuj</button>
-        <button class="delete-btn" data-hash="${q.question_hash}">🗑️ Usuń</button>
+        <button class="btn btn-info btn-sm edit-btn" data-hash="${q.question_hash}">✏️ Edytuj</button>
+        <button class="btn btn-danger btn-sm delete-btn" data-hash="${q.question_hash}">🗑️ Usun</button>
       </div>
     </div>
   `).join('');
@@ -737,9 +808,9 @@ async function displayLearnedQuestions(searchTerm = '') {
 }
 
 function getConfidenceColor(confidence) {
-  if (confidence > 0.8) return '#4CAF50';
-  if (confidence > 0.5) return '#FFC107';
-  return '#F44336';
+  if (confidence > 0.8) return 'confidence-high';
+  if (confidence > 0.5) return 'confidence-medium';
+  return 'confidence-low';
 }
 
 function formatDate(isoString) {
@@ -1463,6 +1534,8 @@ function initTabs() {
 // --- Event Listeners ---
 
 document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
+    initDropzone();
     loadApiKey();
     loadData();
     loadCvStatus();
