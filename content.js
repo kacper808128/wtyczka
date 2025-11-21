@@ -1342,19 +1342,47 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
               // Dispatch input event to trigger autocomplete
               element.dispatchEvent(new InputEvent('input', { bubbles: true, data: answer, inputType: 'insertText' }));
-              await new Promise(resolve => setTimeout(resolve, 500)); // Wait for dropdown
+              await new Promise(resolve => setTimeout(resolve, 800)); // Wait for dropdown (longer for Angular)
 
               // Try to find and click a matching option in dropdown
               const dropdownSelectors = [
+                // Standard ARIA
                 '[role="listbox"] [role="option"]',
                 '[role="menu"] [role="menuitem"]',
+                // Angular Material
+                'mat-option',
+                '.mat-option',
+                '.mat-autocomplete-panel mat-option',
+                '.cdk-overlay-pane mat-option',
+                // Angular ng-select
+                '.ng-dropdown-panel .ng-option',
+                'ng-dropdown-panel ng-option',
+                // Bootstrap / generic
                 '.dropdown-menu li',
+                '.dropdown-menu a',
+                '.dropdown-item',
+                // Autocomplete results
                 '.autocomplete-results li',
+                '.autocomplete-suggestion',
                 '.suggestions li',
-                '.pac-container .pac-item', // Google Places
+                '.suggestion-item',
+                '.typeahead li',
+                '.typeahead-result',
+                // Google Places
+                '.pac-container .pac-item',
+                // Generic patterns
                 '[class*="dropdown"] [class*="option"]',
                 '[class*="dropdown"] li',
-                '[class*="menu"] li'
+                '[class*="dropdown"] a',
+                '[class*="menu"] li',
+                '[class*="autocomplete"] li',
+                '[class*="suggestion"] li',
+                '[class*="result"] li',
+                // List items in any visible overlay
+                '.overlay li',
+                '.popup li',
+                '[class*="popup"] li',
+                '[class*="overlay"] li'
               ];
 
               let optionClicked = false;
