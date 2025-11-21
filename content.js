@@ -2586,10 +2586,34 @@ async function handleCheckbox(checkboxElement, userData) {
       // Auto-check required consent/regulatory checkboxes
       if (!checkboxElement.checked) {
         console.log(`[Gemini Filler] Auto-checking required consent checkbox: "${question || parentText.slice(0, 50)}..."`);
-        checkboxElement.checked = true;
-        checkboxElement.dispatchEvent(new Event('change', { bubbles: true }));
-        checkboxElement.dispatchEvent(new Event('input', { bubbles: true }));
-        checkboxElement.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+        // Method 1: Actually click the checkbox (triggers all native handlers)
+        checkboxElement.click();
+
+        // Method 2: If click didn't work, set properties directly
+        if (!checkboxElement.checked) {
+          checkboxElement.checked = true;
+          checkboxElement.dispatchEvent(new Event('change', { bubbles: true }));
+          checkboxElement.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        // Update aria-checked attribute if present
+        if (checkboxElement.hasAttribute('aria-checked')) {
+          checkboxElement.setAttribute('aria-checked', 'true');
+        }
+
+        // Look for associated hidden field and update it
+        const container = checkboxElement.closest('.chkBox, .checkbox, .form-check, [class*="checkbox"]');
+        if (container) {
+          const hiddenField = container.querySelector('input[type="hidden"]');
+          if (hiddenField && (hiddenField.value === 'NO' || hiddenField.value === 'false' || hiddenField.value === '0')) {
+            hiddenField.value = 'YES';
+            hiddenField.dispatchEvent(new Event('change', { bubbles: true }));
+            console.log(`[Gemini Filler] Updated hidden field to YES: ${hiddenField.name}`);
+          }
+        }
+
+        console.log(`[Gemini Filler] Checkbox checked: ${checkboxElement.checked}, aria-checked: ${checkboxElement.getAttribute('aria-checked')}`);
       }
       return;
     }
