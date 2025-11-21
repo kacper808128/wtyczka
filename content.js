@@ -1311,6 +1311,9 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             const isInput = element.tagName === 'INPUT';
             const isTextarea = element.tagName === 'TEXTAREA';
 
+            // Focus first - required for many frameworks
+            element.focus();
+
             if (isInput || isTextarea) {
               // Get native value setter (works with React/Vue/Angular)
               const prototype = isInput ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype;
@@ -1321,29 +1324,47 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               } else {
                 element.value = answer;
               }
+
+              // For React: dispatch InputEvent with inputType (React 16+ listens for this)
+              const inputEvent = new InputEvent('input', {
+                bubbles: true,
+                cancelable: true,
+                inputType: 'insertText',
+                data: answer
+              });
+              element.dispatchEvent(inputEvent);
+
+              // Also try triggering React's internal onChange handler directly
+              const reactPropsKey = Object.keys(element).find(key =>
+                key.startsWith('__reactProps$') ||
+                key.startsWith('__reactEventHandlers$')
+              );
+
+              if (reactPropsKey && element[reactPropsKey]?.onChange) {
+                try {
+                  element[reactPropsKey].onChange({ target: element, currentTarget: element });
+                  console.log(`[Gemini Filler] Triggered React onChange handler`);
+                } catch (e) {
+                  // Ignore errors from React handler
+                }
+              }
             } else {
               element.value = answer;
+              const inputEvent = new Event('input', { bubbles: true, cancelable: true });
+              element.dispatchEvent(inputEvent);
             }
 
-            // Focus the element first (helps with some frameworks)
-            element.focus();
-            await new Promise(resolve => setTimeout(resolve, 50));
-
-            // Dispatch events in the correct order for framework compatibility
-            const inputEvent = new Event('input', { bubbles: true, cancelable: true });
-            inputEvent._autofilledByExtension = true;
-            element.dispatchEvent(inputEvent);
-
+            // Dispatch change event
             const changeEvent = new Event('change', { bubbles: true, cancelable: true });
-            changeEvent._autofilledByExtension = true;
             element.dispatchEvent(changeEvent);
 
-            // Also dispatch blur to trigger validation
+            // Small delay then blur to trigger validation
+            await new Promise(resolve => setTimeout(resolve, 50));
             element.blur();
 
             aChangeWasMade = true;
             filled = true;
-            console.log(`[Gemini Filler] Filled text input with: "${answer}" (native setter: ${!!Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set})`);
+            console.log(`[Gemini Filler] Filled text input with: "${answer}" (native setter used)`);
           }
 
           // Only mark as processed if we actually filled it
