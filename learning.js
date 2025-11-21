@@ -1,6 +1,94 @@
 // Learning System for Form Autofill Extension
 // This module handles question detection, storage, and suggestion
 
+// ==================== Cache & Performance ====================
+
+// In-memory cache for faster access
+let questionsCache = null;
+let questionsCacheMap = null; // Map<hash, question> for O(1) lookup
+let cacheTimestamp = 0;
+const CACHE_TTL = 30000; // 30 seconds
+
+/**
+ * Invalidate cache (call after any write operation)
+ */
+function invalidateCache() {
+  questionsCache = null;
+  questionsCacheMap = null;
+  cacheTimestamp = 0;
+}
+
+/**
+ * Build Map from questions array for O(1) lookup
+ */
+function buildQuestionsMap(questions) {
+  return new Map(questions.map(q => [q.question_hash, q]));
+}
+
+// ==================== Synonyms Dictionary ====================
+
+const FIELD_SYNONYMS = {
+  // Name fields
+  'imie': ['name', 'first name', 'imię', 'twoje imie', 'twoje imię', 'your name', 'vorname'],
+  'nazwisko': ['last name', 'surname', 'family name', 'nachname'],
+  'imie i nazwisko': ['full name', 'imię i nazwisko', 'your full name', 'name', 'vollständiger name'],
+
+  // Contact fields
+  'email': ['e-mail', 'adres email', 'adres e-mail', 'mail', 'your email', 'twój email', 'email address'],
+  'telefon': ['phone', 'tel', 'numer telefonu', 'nr tel', 'phone number', 'mobile', 'komórka', 'nr telefonu'],
+
+  // Address fields
+  'adres': ['address', 'street', 'ulica', 'street address', 'adres zamieszkania'],
+  'miasto': ['city', 'town', 'miejscowość'],
+  'kod pocztowy': ['postal code', 'zip', 'zip code', 'postcode'],
+  'kraj': ['country', 'państwo', 'land'],
+
+  // Professional fields
+  'stanowisko': ['position', 'job title', 'role', 'title', 'current position'],
+  'firma': ['company', 'employer', 'organization', 'pracodawca', 'nazwa firmy'],
+  'doswiadczenie': ['experience', 'doświadczenie', 'years of experience', 'lata doświadczenia'],
+  'wyksztalcenie': ['education', 'wykształcenie', 'degree', 'studies'],
+  'umiejetnosci': ['skills', 'umiejętności', 'competencies', 'kompetencje'],
+
+  // Salary fields
+  'wynagrodzenie': ['salary', 'pay', 'pensja', 'oczekiwane wynagrodzenie', 'expected salary'],
+  'stawka': ['rate', 'hourly rate', 'stawka godzinowa'],
+
+  // Other common fields
+  'data urodzenia': ['birth date', 'date of birth', 'dob', 'birthday'],
+  'linkedin': ['linkedin url', 'linkedin profile', 'profil linkedin'],
+  'github': ['github url', 'github profile'],
+  'portfolio': ['portfolio url', 'website', 'strona www'],
+  'cv': ['resume', 'życiorys', 'curriculum vitae'],
+  'list motywacyjny': ['cover letter', 'motivation letter'],
+  'dostepnosc': ['availability', 'dostępność', 'available from', 'kiedy możesz zacząć'],
+  'jezyki': ['languages', 'języki', 'language skills'],
+};
+
+/**
+ * Find synonym group for a normalized question
+ * Returns the canonical key if found, null otherwise
+ */
+function findSynonymGroup(normalizedText) {
+  const words = normalizedText.toLowerCase().split(' ').filter(w => w.length > 1);
+
+  for (const [canonical, synonyms] of Object.entries(FIELD_SYNONYMS)) {
+    // Check if the text matches canonical or any synonym
+    const allTerms = [canonical, ...synonyms];
+    for (const term of allTerms) {
+      const termWords = term.toLowerCase().split(' ');
+      // Check if all term words are in the question
+      const allWordsMatch = termWords.every(tw =>
+        words.some(w => w.includes(tw) || tw.includes(w))
+      );
+      if (allWordsMatch && termWords.length > 0) {
+        return canonical;
+      }
+    }
+  }
+  return null;
+}
+
 // ==================== Core Functions ====================
 
 /**
@@ -100,34 +188,161 @@ let storageRequestCounter = 0;
 
 /**
  * Get all learned questions from storage (via storage bridge)
+ * Uses in-memory cache for better performance
  */
 async function getLearnedQuestions() {
+  // Check cache first
+  if (questionsCache && Date.now() - cacheTimestamp < CACHE_TTL) {
+    console.log('[Learning] 📦 Using cached questions:', questionsCache.length);
+    return questionsCache;
+  }
+
   return new Promise((resolve) => {
     const requestId = `storage_${Date.now()}_${storageRequestCounter++}`;
     console.log('[Learning] 📤 Sending storageGet request:', requestId);
 
-    const responseHandler = (event) => {
-      if (event.detail.requestId === requestId) {
-        console.log('[Learning] 📥 Received storageGet response:', requestId, 'questions:', event.detail.data?.length || 0);
-        clearTimeout(timeoutId);  // Clear timeout on success
+    let retryCount = 0;
+    const maxRetries = 3;
+    const baseDelay = 1000; // 1 second
+
+    const attemptFetch = () => {
+      const responseHandler = (event) => {
+        if (event.detail.requestId === requestId) {
+          console.log('[Learning] 📥 Received storageGet response:', requestId, 'questions:', event.detail.data?.length || 0);
+          clearTimeout(timeoutId);
+          document.removeEventListener('learning:storageGetResponse', responseHandler);
+
+          const questions = event.detail.data || [];
+          // Update cache
+          questionsCache = questions;
+          questionsCacheMap = buildQuestionsMap(questions);
+          cacheTimestamp = Date.now();
+
+          resolve(questions);
+        }
+      };
+
+      document.addEventListener('learning:storageGetResponse', responseHandler);
+
+      // Timeout with exponential backoff retry
+      const timeoutId = setTimeout(() => {
         document.removeEventListener('learning:storageGetResponse', responseHandler);
-        resolve(event.detail.data || []);
-      }
+
+        if (retryCount < maxRetries) {
+          retryCount++;
+          const delay = baseDelay * Math.pow(2, retryCount - 1); // 1s, 2s, 4s
+          console.warn(`[Learning] ⏳ Storage get timeout, retry ${retryCount}/${maxRetries} in ${delay}ms`);
+          setTimeout(attemptFetch, delay);
+        } else {
+          console.error('[Learning] ❌ Storage get failed after', maxRetries, 'retries');
+          showStorageErrorNotification();
+          resolve(questionsCache || []); // Return cached data if available, otherwise empty
+        }
+      }, 5000);
+
+      document.dispatchEvent(new CustomEvent('learning:storageGet', {
+        detail: { key: 'learnedQuestions', requestId }
+      }));
     };
 
-    document.addEventListener('learning:storageGetResponse', responseHandler);
-
-    // Timeout after 5 seconds
-    const timeoutId = setTimeout(() => {
-      document.removeEventListener('learning:storageGetResponse', responseHandler);
-      console.warn('[Learning] ❌ Storage get timeout for requestId:', requestId);
-      resolve([]);
-    }, 5000);
-
-    document.dispatchEvent(new CustomEvent('learning:storageGet', {
-      detail: { key: 'learnedQuestions', requestId }
-    }));
+    attemptFetch();
     console.log('[Learning] ✅ StorageGet event dispatched:', requestId);
+  });
+}
+
+/**
+ * Show notification when storage operations fail
+ */
+function showStorageErrorNotification() {
+  if (document.querySelector('.autofill-storage-error-notification')) return;
+
+  const notification = document.createElement('div');
+  notification.className = 'autofill-storage-error-notification';
+  notification.innerHTML = `
+    <div class="notification-content" style="background: #ffebee; border: 1px solid #f44336; border-radius: 8px; padding: 12px 16px; position: fixed; top: 20px; right: 20px; z-index: 999999; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 350px;">
+      <div style="display: flex; align-items: flex-start; gap: 10px;">
+        <div style="font-size: 20px;">⚠️</div>
+        <div style="flex: 1;">
+          <strong style="color: #c62828;">Problem z pamięcią</strong><br>
+          <span style="font-size: 13px; color: #666;">Nie udało się załadować zapisanych odpowiedzi. Sprawdź połączenie lub odśwież stronę.</span>
+        </div>
+        <button class="notification-close" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #999;">×</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(notification);
+
+  notification.querySelector('.notification-close').addEventListener('click', () => {
+    notification.remove();
+  });
+
+  setTimeout(() => notification.remove(), 10000);
+}
+
+/**
+ * Calculate cleanup score for a question (lower = should be removed first)
+ */
+function calculateCleanupScore(question) {
+  const now = Date.now();
+  const lastUsed = new Date(question.last_used || question.created_at).getTime();
+  const daysSinceUsed = (now - lastUsed) / (1000 * 60 * 60 * 24);
+
+  // Score based on: confidence, frequency, recency, feedback
+  const confidenceScore = question.confidence * 30;
+  const frequencyScore = Math.min(question.frequency, 20) * 2;
+  const recencyScore = Math.max(0, 30 - daysSinceUsed); // Higher for recent
+  const feedbackScore = (question.feedback_positive - question.feedback_negative) * 5;
+
+  return confidenceScore + frequencyScore + recencyScore + feedbackScore;
+}
+
+/**
+ * Show warning before data cleanup with export option
+ */
+function showCleanupWarning(questionsToRemove, totalQuestions) {
+  return new Promise((resolve) => {
+    const notification = document.createElement('div');
+    notification.className = 'autofill-cleanup-warning';
+    notification.innerHTML = `
+      <div class="notification-content" style="background: #fff3e0; border: 1px solid #ff9800; border-radius: 8px; padding: 16px; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 999999; box-shadow: 0 8px 32px rgba(0,0,0,0.3); max-width: 450px; text-align: center;">
+        <div style="font-size: 48px; margin-bottom: 12px;">⚠️</div>
+        <h3 style="margin: 0 0 8px 0; color: #e65100;">Pamięć prawie pełna</h3>
+        <p style="margin: 0 0 16px 0; color: #666; font-size: 14px;">
+          Aby kontynuować, musimy usunąć <strong>${questionsToRemove}</strong> z <strong>${totalQuestions}</strong> zapisanych pytań
+          (najmniej używane i najstarsze).
+        </p>
+        <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+          <button class="cleanup-export" style="padding: 10px 20px; background: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+            📥 Eksportuj najpierw
+          </button>
+          <button class="cleanup-continue" style="padding: 10px 20px; background: #ff9800; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+            🗑️ Kontynuuj bez eksportu
+          </button>
+          <button class="cleanup-cancel" style="padding: 10px 20px; background: #9e9e9e; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+            ❌ Anuluj
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(notification);
+
+    notification.querySelector('.cleanup-export').addEventListener('click', async () => {
+      await exportLearnedQuestions();
+      notification.remove();
+      resolve('continue');
+    });
+
+    notification.querySelector('.cleanup-continue').addEventListener('click', () => {
+      notification.remove();
+      resolve('continue');
+    });
+
+    notification.querySelector('.cleanup-cancel').addEventListener('click', () => {
+      notification.remove();
+      resolve('cancel');
+    });
   });
 }
 
@@ -135,66 +350,119 @@ async function getLearnedQuestions() {
  * Save learned questions to storage (via storage bridge)
  */
 async function saveLearnedQuestions(questions) {
-  return new Promise((resolve, reject) => {
+  // Invalidate cache before save
+  invalidateCache();
+
+  return new Promise(async (resolveMain, rejectMain) => {
     // Check storage size limit (10MB for local storage)
     const dataSize = JSON.stringify(questions).length;
     const MAX_SIZE = 9 * 1024 * 1024; // 9MB to be safe
+    const WARNING_SIZE = 8 * 1024 * 1024; // 8MB - show warning
 
     if (dataSize > MAX_SIZE) {
-      console.warn('[Learning] Storage limit approaching, removing old questions');
-      // Keep only most used questions
-      questions.sort((a, b) => b.frequency - a.frequency);
-      questions = questions.slice(0, Math.floor(questions.length * 0.7));
+      const originalCount = questions.length;
+      const targetCount = Math.floor(originalCount * 0.7);
+      const toRemove = originalCount - targetCount;
+
+      console.warn('[Learning] Storage limit exceeded, need to remove', toRemove, 'questions');
+
+      // Show warning to user
+      const userChoice = await showCleanupWarning(toRemove, originalCount);
+
+      if (userChoice === 'cancel') {
+        rejectMain(new Error('User cancelled cleanup'));
+        return;
+      }
+
+      // Smart cleanup: sort by cleanup score and remove lowest scoring
+      questions.sort((a, b) => calculateCleanupScore(b) - calculateCleanupScore(a));
+      questions = questions.slice(0, targetCount);
+
+      console.log('[Learning] Cleaned up to', questions.length, 'questions');
+    } else if (dataSize > WARNING_SIZE) {
+      // Just log warning, don't interrupt
+      console.warn('[Learning] ⚠️ Storage usage high:', Math.round(dataSize / 1024 / 1024 * 100) / 100, 'MB');
     }
 
     const requestId = `storage_${Date.now()}_${storageRequestCounter++}`;
     console.log('[Learning] 📤 Sending storageSet request:', requestId, 'questions count:', questions.length);
 
-    const responseHandler = (event) => {
-      if (event.detail.requestId === requestId) {
-        console.log('[Learning] 📥 Received storageSet response:', requestId, 'success:', event.detail.success);
-        clearTimeout(timeoutId);  // Clear timeout on success
-        document.removeEventListener('learning:storageSetResponse', responseHandler);
-        if (event.detail.success) {
-          resolve();
-        } else {
-          reject(new Error('Storage set failed'));
+    let retryCount = 0;
+    const maxRetries = 3;
+    const baseDelay = 1000;
+
+    const attemptSave = () => {
+      const responseHandler = (event) => {
+        if (event.detail.requestId === requestId) {
+          console.log('[Learning] 📥 Received storageSet response:', requestId, 'success:', event.detail.success);
+          clearTimeout(timeoutId);
+          document.removeEventListener('learning:storageSetResponse', responseHandler);
+
+          if (event.detail.success) {
+            // Update cache with saved data
+            questionsCache = questions;
+            questionsCacheMap = buildQuestionsMap(questions);
+            cacheTimestamp = Date.now();
+            resolveMain();
+          } else {
+            rejectMain(new Error('Storage set failed'));
+          }
         }
-      }
+      };
+
+      document.addEventListener('learning:storageSetResponse', responseHandler);
+
+      const timeoutId = setTimeout(() => {
+        document.removeEventListener('learning:storageSetResponse', responseHandler);
+
+        if (retryCount < maxRetries) {
+          retryCount++;
+          const delay = baseDelay * Math.pow(2, retryCount - 1);
+          console.warn(`[Learning] ⏳ Storage set timeout, retry ${retryCount}/${maxRetries} in ${delay}ms`);
+          setTimeout(attemptSave, delay);
+        } else {
+          console.error('[Learning] ❌ Storage set failed after', maxRetries, 'retries');
+          rejectMain(new Error('Storage set timeout after retries'));
+        }
+      }, 5000);
+
+      document.dispatchEvent(new CustomEvent('learning:storageSet', {
+        detail: { key: 'learnedQuestions', value: questions, requestId }
+      }));
     };
 
-    document.addEventListener('learning:storageSetResponse', responseHandler);
-
-    // Timeout after 5 seconds
-    const timeoutId = setTimeout(() => {
-      document.removeEventListener('learning:storageSetResponse', responseHandler);
-      console.warn('[Learning] ❌ Storage set timeout for requestId:', requestId);
-      reject(new Error('Storage set timeout'));
-    }, 5000);
-
-    document.dispatchEvent(new CustomEvent('learning:storageSet', {
-      detail: { key: 'learnedQuestions', value: questions, requestId }
-    }));
+    attemptSave();
     console.log('[Learning] ✅ StorageSet event dispatched:', requestId);
   });
 }
 
 /**
- * Find existing question by hash
+ * Find existing question by hash (O(1) lookup using Map)
  */
 async function findExistingQuestion(questionHash) {
-  const questions = await getLearnedQuestions();
-  return questions.find(q => q.question_hash === questionHash);
+  // First check if we have a cached Map
+  if (questionsCacheMap && Date.now() - cacheTimestamp < CACHE_TTL) {
+    return questionsCacheMap.get(questionHash) || null;
+  }
+
+  // Otherwise load questions (which will build the Map)
+  await getLearnedQuestions();
+  return questionsCacheMap ? questionsCacheMap.get(questionHash) || null : null;
 }
 
 /**
- * Find similar question using fuzzy matching
+ * Find similar question using fuzzy matching + synonyms
+ * @param {string} normalizedQuestion - normalized question text
+ * @param {string} currentDomain - optional domain for context-aware matching
  */
-async function findSimilarQuestion(normalizedQuestion) {
+async function findSimilarQuestion(normalizedQuestion, currentDomain = null) {
   const questions = await getLearnedQuestions();
 
   const queryWords = new Set(normalizedQuestion.split(' ').filter(w => w.length > 2));
   if (queryWords.size === 0) return null;
+
+  // Check if query matches a synonym group
+  const querySynonymGroup = findSynonymGroup(normalizedQuestion);
 
   let bestMatch = null;
   let bestScore = 0;
@@ -203,21 +471,35 @@ async function findSimilarQuestion(normalizedQuestion) {
     const questionWords = new Set(normalizeQuestion(q.question_text).split(' ').filter(w => w.length > 2));
     if (questionWords.size === 0) return;
 
+    // Standard Jaccard similarity
     const intersection = new Set([...queryWords].filter(x => questionWords.has(x)));
     const union = new Set([...queryWords, ...questionWords]);
-    const similarity = intersection.size / union.size;
+    let similarity = intersection.size / union.size;
+
+    // Boost similarity if both match the same synonym group
+    const questionSynonymGroup = findSynonymGroup(normalizeQuestion(q.question_text));
+    if (querySynonymGroup && questionSynonymGroup && querySynonymGroup === questionSynonymGroup) {
+      similarity = Math.max(similarity, 0.8); // High similarity for synonym matches
+    }
 
     // Check variations too
     let maxVariationSimilarity = 0;
-    q.variations.forEach(variation => {
-      const varWords = new Set(variation.split(' ').filter(w => w.length > 2));
-      const varIntersection = new Set([...queryWords].filter(x => varWords.has(x)));
-      const varUnion = new Set([...queryWords, ...varWords]);
-      const varSimilarity = varIntersection.size / varUnion.size;
-      maxVariationSimilarity = Math.max(maxVariationSimilarity, varSimilarity);
-    });
+    if (q.variations && q.variations.length > 0) {
+      q.variations.forEach(variation => {
+        const varWords = new Set(variation.split(' ').filter(w => w.length > 2));
+        const varIntersection = new Set([...queryWords].filter(x => varWords.has(x)));
+        const varUnion = new Set([...queryWords, ...varWords]);
+        const varSimilarity = varIntersection.size / varUnion.size;
+        maxVariationSimilarity = Math.max(maxVariationSimilarity, varSimilarity);
+      });
+    }
 
-    const finalSimilarity = Math.max(similarity, maxVariationSimilarity);
+    let finalSimilarity = Math.max(similarity, maxVariationSimilarity);
+
+    // Domain bonus: prefer matches from same domain
+    if (currentDomain && q.context && q.context.domain === currentDomain) {
+      finalSimilarity *= 1.1; // 10% bonus for same domain
+    }
 
     if (finalSimilarity > 0.5 && finalSimilarity > bestScore) {
       bestScore = finalSimilarity;
@@ -226,6 +508,82 @@ async function findSimilarQuestion(normalizedQuestion) {
   });
 
   return bestMatch;
+}
+
+/**
+ * Get current domain from URL
+ */
+function getCurrentDomain() {
+  try {
+    return new URL(window.location.href).hostname;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Calculate Wilson score for confidence (Bayesian approach)
+ * Returns lower bound of Wilson score interval at 95% confidence
+ */
+function calculateWilsonScore(positive, negative) {
+  const n = positive + negative;
+  if (n === 0) return 0.5; // Default confidence for no feedback
+
+  const p = positive / n;
+  const z = 1.96; // 95% confidence level
+
+  // Wilson score interval lower bound
+  const denominator = 1 + z * z / n;
+  const center = p + z * z / (2 * n);
+  const spread = z * Math.sqrt((p * (1 - p) + z * z / (4 * n)) / n);
+
+  return (center - spread) / denominator;
+}
+
+/**
+ * Calculate overall confidence combining Wilson score with other factors
+ *
+ * Confidence is based on REAL user feedback only:
+ * - 👍 clicks increase confidence
+ * - 👎 clicks decrease confidence
+ * - ✏️ edits count as strong positive (user provided correct answer)
+ *
+ * Without user feedback, confidence stays at base level (0.5).
+ * Frequency and recency are secondary factors.
+ */
+function calculateOverallConfidence(question) {
+  const positive = question.feedback_positive || 0;
+  const negative = question.feedback_negative || 0;
+  const totalFeedback = positive + negative;
+
+  // Frequency factor: more uses = slightly more confidence (capped)
+  // But this is a weak signal without real feedback
+  const frequencyFactor = Math.min(1, (question.frequency || 1) / 15);
+
+  // Recency factor: recent use = more relevant
+  const daysSinceUsed = question.last_used
+    ? (Date.now() - new Date(question.last_used).getTime()) / (1000 * 60 * 60 * 24)
+    : 30;
+  const recencyFactor = Math.max(0.5, 1 - daysSinceUsed / 60);
+
+  // No feedback at all - stay at neutral confidence
+  // User hasn't validated this answer yet
+  if (totalFeedback === 0) {
+    // Base confidence 0.5, with small boost from frequency and recency
+    // Max possible without feedback: 0.5 + 0.1 + 0.05 = 0.65
+    return 0.5 + frequencyFactor * 0.1 + recencyFactor * 0.05;
+  }
+
+  // With feedback - Wilson score becomes primary
+  const wilsonScore = calculateWilsonScore(positive, negative);
+
+  if (totalFeedback >= 3) {
+    // Enough feedback - Wilson score is reliable
+    return wilsonScore * 0.8 + frequencyFactor * 0.12 + recencyFactor * 0.08;
+  } else {
+    // Some feedback but not much - blend Wilson with frequency/recency
+    return wilsonScore * 0.5 + frequencyFactor * 0.3 + recencyFactor * 0.2;
+  }
 }
 
 // ==================== Capture & Update Functions ====================
@@ -260,7 +618,8 @@ async function captureQuestion(fieldElement, userAnswer) {
         context: {
           field_name: fieldElement.name || '',
           field_id: fieldElement.id || '',
-          form_url: window.location.href
+          form_url: window.location.href,
+          domain: getCurrentDomain() // Add domain for context-aware matching
         },
         created_at: new Date().toISOString(),
         feedback_positive: 0,
@@ -295,6 +654,11 @@ async function saveNewQuestion(questionData) {
 
 /**
  * Update statistics for existing question
+ * NOTE: This function does NOT modify feedback counters automatically.
+ * Feedback should only come from explicit user actions (👍/👎/✏️).
+ * Auto-incrementing feedback when AI fills the same answer would be
+ * "self-confirmation" - AI telling itself it's doing a good job without
+ * any real user validation.
  */
 async function updateQuestionStats(question, newAnswer) {
   try {
@@ -305,15 +669,21 @@ async function updateQuestionStats(question, newAnswer) {
       questions[index].frequency += 1;
       questions[index].last_used = new Date().toISOString();
 
-      // If answer changed, lower confidence
+      // Update domain if not set
+      if (!questions[index].context.domain) {
+        questions[index].context.domain = getCurrentDomain();
+      }
+
+      // If AI decided to use a different answer, just update it
+      // Don't count this as negative feedback - it's AI changing its mind,
+      // not user rejecting the answer
       if (questions[index].user_answer !== newAnswer) {
         questions[index].user_answer = newAnswer;
-        questions[index].confidence = Math.max(0.3, questions[index].confidence - 0.1);
         console.log('[Learning] Answer updated for:', questions[index].question_text);
-      } else {
-        // Same answer = higher confidence
-        questions[index].confidence = Math.min(1.0, questions[index].confidence + 0.05);
       }
+
+      // Recalculate confidence (based on real user feedback only)
+      questions[index].confidence = calculateOverallConfidence(questions[index]);
 
       await saveLearnedQuestions(questions);
     }
@@ -334,27 +704,35 @@ async function getSuggestionForField(fieldElement) {
 
     const normalizedQuestion = normalizeQuestion(questionText);
     const questionHash = generateHash(normalizedQuestion);
+    const currentDomain = getCurrentDomain();
 
     // Try exact match first
     const existingQuestion = await findExistingQuestion(questionHash);
-    if (existingQuestion && existingQuestion.confidence > 0.7) {
-      return {
-        answer: existingQuestion.user_answer,
-        confidence: existingQuestion.confidence,
-        source: 'learned',
-        questionHash: existingQuestion.question_hash
-      };
+    if (existingQuestion) {
+      // Recalculate confidence using Wilson score
+      const confidence = calculateOverallConfidence(existingQuestion);
+      if (confidence > 0.5) { // Lowered threshold since Wilson is more conservative
+        return {
+          answer: existingQuestion.user_answer,
+          confidence: confidence,
+          source: 'learned',
+          questionHash: existingQuestion.question_hash
+        };
+      }
     }
 
-    // Try fuzzy matching
-    const similarQuestion = await findSimilarQuestion(normalizedQuestion);
-    if (similarQuestion && similarQuestion.confidence > 0.6) {
-      return {
-        answer: similarQuestion.user_answer,
-        confidence: similarQuestion.confidence * 0.8, // Lower confidence for fuzzy match
-        source: 'similar',
-        questionHash: similarQuestion.question_hash
-      };
+    // Try fuzzy matching with synonyms and domain context
+    const similarQuestion = await findSimilarQuestion(normalizedQuestion, currentDomain);
+    if (similarQuestion) {
+      const confidence = calculateOverallConfidence(similarQuestion);
+      if (confidence > 0.4) { // Lower threshold for fuzzy matches
+        return {
+          answer: similarQuestion.user_answer,
+          confidence: confidence * 0.85, // Slight penalty for fuzzy match
+          source: 'similar',
+          questionHash: similarQuestion.question_hash
+        };
+      }
     }
 
     return null;
@@ -376,14 +754,15 @@ async function recordFeedback(questionHash, feedbackType) {
 
     if (index !== -1) {
       if (feedbackType === 'positive') {
-        questions[index].feedback_positive += 1;
-        questions[index].confidence = Math.min(1.0, questions[index].confidence + 0.1);
+        questions[index].feedback_positive = (questions[index].feedback_positive || 0) + 1;
         console.log('[Learning] Positive feedback for:', questions[index].question_text);
       } else {
-        questions[index].feedback_negative += 1;
-        questions[index].confidence = Math.max(0.1, questions[index].confidence - 0.15);
+        questions[index].feedback_negative = (questions[index].feedback_negative || 0) + 1;
         console.log('[Learning] Negative feedback for:', questions[index].question_text);
       }
+
+      // Recalculate confidence using Wilson score
+      questions[index].confidence = calculateOverallConfidence(questions[index]);
 
       await saveLearnedQuestions(questions);
     }
@@ -909,7 +1288,8 @@ document.addEventListener('learning:captureQuestion', async (event) => {
         context: {
           field_name: fieldName,
           field_id: fieldId,
-          form_url: window.location.href
+          form_url: window.location.href,
+          domain: getCurrentDomain() // Add domain for context-aware matching
         },
         created_at: new Date().toISOString(),
         feedback_positive: 0,
@@ -943,39 +1323,46 @@ document.addEventListener('learning:getSuggestion', async (event) => {
 
     const normalizedQuestion = normalizeQuestion(questionText);
     const questionHash = generateHash(normalizedQuestion);
+    const currentDomain = getCurrentDomain();
 
     // Try exact match first
     const existingQuestion = await findExistingQuestion(questionHash);
-    if (existingQuestion && existingQuestion.confidence > 0.7) {
-      document.dispatchEvent(new CustomEvent('learning:getSuggestionResponse', {
-        detail: {
-          suggestion: {
-            answer: existingQuestion.user_answer,
-            confidence: existingQuestion.confidence,
-            source: 'learned',
-            questionHash: existingQuestion.question_hash
-          },
-          requestId
-        }
-      }));
-      return;
+    if (existingQuestion) {
+      const confidence = calculateOverallConfidence(existingQuestion);
+      if (confidence > 0.5) { // Lowered threshold since Wilson is more conservative
+        document.dispatchEvent(new CustomEvent('learning:getSuggestionResponse', {
+          detail: {
+            suggestion: {
+              answer: existingQuestion.user_answer,
+              confidence: confidence,
+              source: 'learned',
+              questionHash: existingQuestion.question_hash
+            },
+            requestId
+          }
+        }));
+        return;
+      }
     }
 
-    // Try fuzzy matching
-    const similarQuestion = await findSimilarQuestion(normalizedQuestion);
-    if (similarQuestion && similarQuestion.confidence > 0.6) {
-      document.dispatchEvent(new CustomEvent('learning:getSuggestionResponse', {
-        detail: {
-          suggestion: {
-            answer: similarQuestion.user_answer,
-            confidence: similarQuestion.confidence * 0.8,
-            source: 'similar',
-            questionHash: similarQuestion.question_hash
-          },
-          requestId
-        }
-      }));
-      return;
+    // Try fuzzy matching with synonyms and domain context
+    const similarQuestion = await findSimilarQuestion(normalizedQuestion, currentDomain);
+    if (similarQuestion) {
+      const confidence = calculateOverallConfidence(similarQuestion);
+      if (confidence > 0.4) { // Lower threshold for fuzzy matches
+        document.dispatchEvent(new CustomEvent('learning:getSuggestionResponse', {
+          detail: {
+            suggestion: {
+              answer: similarQuestion.user_answer,
+              confidence: confidence * 0.85, // Slight penalty for fuzzy match
+              source: 'similar',
+              questionHash: similarQuestion.question_hash
+            },
+            requestId
+          }
+        }));
+        return;
+      }
     }
 
     // No suggestion found
