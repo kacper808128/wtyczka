@@ -2886,6 +2886,15 @@ async function handleCheckbox(checkboxElement, userData) {
 
 async function handleCustomResumeButtons(processedElements) {
   try {
+    // First check if ANY file input already has files - if so, skip all custom buttons
+    const allFileInputs = document.querySelectorAll('input[type="file"]');
+    for (const fi of allFileInputs) {
+      if (fi.files && fi.files.length > 0) {
+        console.log('[Gemini Filler] File input already has files, skipping all custom upload buttons');
+        return;
+      }
+    }
+
     // Look for custom div-based upload buttons (like the one in the example)
     // These are typically divs or spans with specific classes and text content
     const customUploadSelectors = [

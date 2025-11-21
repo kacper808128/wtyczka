@@ -614,13 +614,29 @@ function getMockAIResponse(question, userData, options) {
     answer = findUserDataValue(['education', 'wykształcenie', 'edukacja', 'szkoła']) || '';
   } else if (lowerQuestion.includes('start') || lowerQuestion.includes('rozpocząć') || lowerQuestion.includes('availability') || lowerQuestion.includes('dostępność') || lowerQuestion.includes('kiedy')) {
     answer = findUserDataValue(['startDate', 'availability', 'start', 'kiedy', 'od kiedy', 'rozpoczęcie', 'dostępność']) || '';
-  } else if (lowerQuestion.includes('salary') || lowerQuestion.includes('wynagrodzenie') || lowerQuestion.includes('pensja') || lowerQuestion.includes('financial') || lowerQuestion.includes('oczekiwania finansowe')) {
+  } else if (lowerQuestion.includes('salary') || lowerQuestion.includes('wynagrodzenie') || lowerQuestion.includes('pensja') || lowerQuestion.includes('financial') || lowerQuestion.includes('oczekiwania finansowe') || lowerQuestion.includes('oczekiwania')) {
+    // Helper to convert salary string to number
+    const parseToNumber = (salaryStr) => {
+      if (!salaryStr) return null;
+      let numMatch = salaryStr.match(/[\d\s,.]+/);
+      if (!numMatch) return null;
+      let numStr = numMatch[0].replace(/\s/g, '').replace(',', '.');
+      let num = parseFloat(numStr);
+      // Handle "tysięcy/tysiące/k" multiplier
+      if (/tysi|tys|k\b/i.test(salaryStr) && num < 1000) {
+        num = num * 1000;
+      }
+      return num;
+    };
+
     // Check if this is a range field (Od/Do, From/To, Min/Max)
     const isMinField = /\(od\)|\(from\)|\(min\)/i.test(lowerQuestion);
     const isMaxField = /\(do\)|\(to\)|\(max\)/i.test(lowerQuestion);
 
-    // Check if asking for hourly rate
-    const isHourlyRate = /pln\/h|\/h\b|per hour|za godzinę|godzinow|hourly|stawka godzinowa/i.test(lowerQuestion);
+    // Check if asking for hourly rate (B2B contracts are typically hourly in Poland)
+    const isHourlyRate = /pln\/h|\/h\)|\/h\s|per hour|za godzinę|godzinow|hourly|stawka godzinowa|b2b/i.test(lowerQuestion);
+
+    console.log(`[Mock AI] Salary field analysis: isHourly=${isHourlyRate}, isMin=${isMinField}, isMax=${isMaxField}, question="${question.substring(0, 50)}..."`);
 
     if (isHourlyRate) {
       // Try to get hourly rate directly first
@@ -628,41 +644,35 @@ function getMockAIResponse(question, userData, options) {
       if (!answer) {
         // Convert monthly salary to hourly (assume 168 working hours per month)
         const monthlySalary = findUserDataValue(['salary', 'wynagrodzenie', 'expectedSalary']) || '';
-        if (monthlySalary) {
-          // Parse number from salary string (e.g., "15 tysięcy" -> 15000)
-          let numMatch = monthlySalary.match(/[\d\s,.]+/);
-          if (numMatch) {
-            let numStr = numMatch[0].replace(/\s/g, '').replace(',', '.');
-            let num = parseFloat(numStr);
-            // Handle "tysięcy/tysiące/k" multiplier
-            if (/tysi|tys|k\b/i.test(monthlySalary) && num < 1000) {
-              num = num * 1000;
-            }
-            // Convert monthly to hourly (168 hours = average work month)
-            const hourlyRate = Math.round(num / 168);
-            answer = hourlyRate.toString();
-            console.log(`[Mock AI] Converted monthly ${num} to hourly rate: ${hourlyRate} PLN/h`);
-          }
+        const monthlyNum = parseToNumber(monthlySalary);
+        if (monthlyNum) {
+          // Convert monthly to hourly (168 hours = average work month)
+          const hourlyRate = Math.round(monthlyNum / 168);
+          answer = hourlyRate.toString();
+          console.log(`[Mock AI] Converted monthly ${monthlyNum} to hourly rate: ${hourlyRate} PLN/h`);
         }
       }
     } else if (isMinField) {
-      answer = findUserDataValue(['salaryMin', 'salaryFrom', 'minSalary', 'wynagrodzenie od', 'salary']) || '';
+      const rawAnswer = findUserDataValue(['salaryMin', 'salaryFrom', 'minSalary', 'wynagrodzenie od', 'salary']) || '';
+      const num = parseToNumber(rawAnswer);
+      answer = num ? num.toString() : rawAnswer;
     } else if (isMaxField) {
-      answer = findUserDataValue(['salaryMax', 'salaryTo', 'maxSalary', 'wynagrodzenie do']) || '';
-      // If no max defined, try to derive from base salary (assume +20% or same value)
-      if (!answer) {
+      let rawAnswer = findUserDataValue(['salaryMax', 'salaryTo', 'maxSalary', 'wynagrodzenie do']) || '';
+      // If no max defined, try to derive from base salary (assume +20%)
+      if (!rawAnswer) {
         const baseSalary = findUserDataValue(['salary', 'wynagrodzenie', 'expectedSalary']) || '';
-        if (baseSalary) {
-          const numMatch = baseSalary.match(/\d+/);
-          if (numMatch) {
-            const baseNum = parseInt(numMatch[0]);
-            // For "Do" field, add 20% to base salary if it's a number
-            answer = Math.round(baseNum * 1.2).toString();
-          }
+        const baseNum = parseToNumber(baseSalary);
+        if (baseNum) {
+          answer = Math.round(baseNum * 1.2).toString();
         }
+      } else {
+        const num = parseToNumber(rawAnswer);
+        answer = num ? num.toString() : rawAnswer;
       }
     } else {
-      answer = findUserDataValue(['salary', 'wynagrodzenie', 'expectedSalary', 'pensja', 'oczekiwane wynagrodzenie']) || '';
+      const rawAnswer = findUserDataValue(['salary', 'wynagrodzenie', 'expectedSalary', 'pensja', 'oczekiwane wynagrodzenie']) || '';
+      const num = parseToNumber(rawAnswer);
+      answer = num ? num.toString() : rawAnswer;
     }
   } else if (lowerQuestion.includes('work permit') || lowerQuestion.includes('work authorization') ||
              lowerQuestion.includes('right to work') || lowerQuestion.includes('work visa') ||
