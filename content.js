@@ -1508,14 +1508,9 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
     console.log(`[Gemini Filler] Stats: filled=${filledFields}/${totalFields}, elapsed=${elapsedTime}s`);
 
-    // Show summary of missing fields if any (BEFORE return!)
-    console.log(`[Gemini Filler] Checking missing fields summary: missingFields=${missingFields ? 'exists' : 'null'}, length=${missingFields?.length || 0}`);
-    if (missingFields && missingFields.length > 0) {
-      console.log(`[Gemini Filler] Displaying missing fields summary for ${missingFields.length} fields:`, missingFields.map(f => f.question));
-      showMissingFieldsSummary(missingFields, userData, filledFields, totalFields, elapsedTime);
-    } else {
-      console.log('[Gemini Filler] No missing fields to display, or missingFields is empty');
-    }
+    // Show summary modal - always show it (even for 100% completion)
+    console.log(`[Gemini Filler] Stats summary: filled=${filledFields}/${totalFields}, missing=${missingFields?.length || 0}`);
+    showMissingFieldsSummary(missingFields || [], userData, filledFields, totalFields, elapsedTime);
 
     return; // Exit early after batch processing
   }
@@ -1834,7 +1829,7 @@ function createSummaryModal(missingFields, suggestions, filledFields, totalField
   `;
 
   // Calculate time savings
-  const manualTimeMinutes = totalFields * 1; // 1 minute per field
+  const manualTimeMinutes = totalFields * 0.5; // 0.5 minute per field
   const savedMinutes = manualTimeMinutes - Math.round(elapsedTime / 60);
   const percentage = Math.round((filledFields / totalFields) * 100);
 
