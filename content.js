@@ -990,8 +990,13 @@ async function fillCustomDropdown(element, userData, question) {
   }
 }
 
-async function fillFormWithAI(userData, processedElements = new Set(), depth = 0, isRetry = false, missingFields = null) {
+async function fillFormWithAI(userData, processedElements = new Set(), depth = 0, isRetry = false, missingFields = null, startTime = null) {
   console.log(`[Gemini Filler] fillFormWithAI called: depth=${depth}, isRetry=${isRetry}, missingFields=${missingFields ? `array[${missingFields.length}]` : 'null'}`);
+
+  // Track start time for performance metrics (only at depth 0)
+  if (depth === 0 && !startTime) {
+    startTime = Date.now();
+  }
 
   // Helper function to check if answer is a placeholder or invalid response (AI sometimes returns these)
   const isPlaceholder = (text) => {
@@ -1456,7 +1461,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
     // Recursively check for new fields
     if (aChangeWasMade) {
       await new Promise(resolve => setTimeout(resolve, 1000));
-      await fillFormWithAI(userData, processedElements, depth + 1, isRetry, missingFields);
+      await fillFormWithAI(userData, processedElements, depth + 1, isRetry, missingFields, startTime);
     }
 
     // Second verification pass
@@ -1478,7 +1483,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
       if (missedFields.length > 0) {
         console.log(`[Gemini Filler] Second pass: found ${missedFields.length} missed fields, retrying...`);
-        await fillFormWithAI(userData, processedElements, 0, true, missingFields);
+        await fillFormWithAI(userData, processedElements, 0, true, missingFields, startTime);
       } else {
         console.log('[Gemini Filler] Second pass: no missed fields found.');
       }
@@ -1496,11 +1501,18 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
       });
     }
 
+    // Calculate elapsed time and total fields
+    const elapsedTime = startTime ? Math.round((Date.now() - startTime) / 1000) : 0;
+    const totalFields = batchQuestions.length;
+    const filledFields = totalFields - (missingFields ? missingFields.length : 0);
+
+    console.log(`[Gemini Filler] Stats: filled=${filledFields}/${totalFields}, elapsed=${elapsedTime}s`);
+
     // Show summary of missing fields if any (BEFORE return!)
     console.log(`[Gemini Filler] Checking missing fields summary: missingFields=${missingFields ? 'exists' : 'null'}, length=${missingFields?.length || 0}`);
     if (missingFields && missingFields.length > 0) {
       console.log(`[Gemini Filler] Displaying missing fields summary for ${missingFields.length} fields:`, missingFields.map(f => f.question));
-      showMissingFieldsSummary(missingFields, userData);
+      showMissingFieldsSummary(missingFields, userData, filledFields, totalFields, elapsedTime);
     } else {
       console.log('[Gemini Filler] No missing fields to display, or missingFields is empty');
     }
@@ -1719,7 +1731,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
   // Modal is only shown at the end of batch processing (depth 0, !isRetry)
 }
 
-function showMissingFieldsSummary(missingFields, userData) {
+function showMissingFieldsSummary(missingFields, userData, filledFields, totalFields, elapsedTime) {
   console.log('[Gemini Filler] showMissingFieldsSummary called with:', missingFields);
 
   // Remove duplicates based on question
@@ -1739,34 +1751,12 @@ function showMissingFieldsSummary(missingFields, userData) {
     return;
   }
 
-  // Create summary message
-  let message = '⚠️ PODSUMOWANIE WYPEŁNIANIA FORMULARZA\n\n';
-  message += `Nie udało się wypełnić ${uniqueFields.length} pól z powodu braku danych:\n\n`;
-
-  uniqueFields.forEach((field, index) => {
-    message += `${index + 1}. ${field.question}\n`;
-    message += `   Powód: ${field.reason}\n\n`;
-  });
-
-  message += '💡 SUGESTIE:\n\n';
-  message += '1. Uzupełnij te pola ręcznie\n';
-  message += '2. Lub dodaj brakujące dane w opcjach rozszerzenia:\n';
-  message += '   - Kliknij prawym na ikonę rozszerzenia\n';
-  message += '   - Wybierz "Opcje"\n';
-  message += '   - Dodaj brakujące dane\n\n';
-
   // Suggest specific fields to add
   const suggestions = getSuggestedFields(uniqueFields);
-  if (suggestions.length > 0) {
-    message += 'REKOMENDOWANE POLA DO DODANIA:\n';
-    suggestions.forEach(sug => {
-      message += `   • ${sug}\n`;
-    });
-  }
 
   // Create styled modal instead of basic alert
   console.log('[Gemini Filler] Creating summary modal...');
-  const modal = createSummaryModal(uniqueFields, suggestions);
+  const modal = createSummaryModal(uniqueFields, suggestions, filledFields, totalFields, elapsedTime);
   console.log('[Gemini Filler] Appending modal to document.body');
   document.body.appendChild(modal);
   console.log('[Gemini Filler] Modal appended successfully');
@@ -1822,7 +1812,7 @@ function getSuggestedFields(missingFields) {
   return suggestions;
 }
 
-function createSummaryModal(missingFields, suggestions) {
+function createSummaryModal(missingFields, suggestions, filledFields, totalFields, elapsedTime) {
   const modal = document.createElement('div');
   modal.id = 'gemini-filler-summary-modal';
   modal.style.cssText = `
@@ -1831,7 +1821,7 @@ function createSummaryModal(missingFields, suggestions) {
     left: 50%;
     transform: translate(-50%, -50%);
     background: white;
-    border: 2px solid #ff9800;
+    border: 2px solid #4CAF50;
     border-radius: 12px;
     padding: 24px;
     max-width: 500px;
@@ -1843,89 +1833,186 @@ function createSummaryModal(missingFields, suggestions) {
     color: #333;
   `;
 
+  // Calculate time savings
+  const manualTimeMinutes = totalFields * 1; // 1 minute per field
+  const savedMinutes = manualTimeMinutes - Math.round(elapsedTime / 60);
+  const percentage = Math.round((filledFields / totalFields) * 100);
+
   let content = `
     <div style="display: flex; align-items: center; margin-bottom: 16px;">
-      <span style="font-size: 32px; margin-right: 12px;">⚠️</span>
-      <h2 style="margin: 0; font-size: 20px; color: #ff9800;">Podsumowanie wypełniania</h2>
+      <span style="font-size: 32px; margin-right: 12px;">✓</span>
+      <h2 style="margin: 0; font-size: 20px; color: #4CAF50;">Formularz wypełniony!</h2>
     </div>
 
-    <div style="margin-bottom: 20px; padding: 12px; background: #fff3e0; border-left: 4px solid #ff9800; border-radius: 4px;">
-      <strong>Nie wypełniono ${missingFields.length} pól</strong> z powodu braku danych w bazie wiedzy
+    <div style="margin-bottom: 20px; padding: 16px; background: #f1f8f4; border-left: 4px solid #4CAF50; border-radius: 4px;">
+      <div style="font-size: 24px; font-weight: bold; color: #4CAF50; margin-bottom: 8px;">${percentage}% wypełnione</div>
+      <div style="font-size: 14px; color: #666;">
+        ✓ ${filledFields} pól wypełnionych automatycznie<br>
+        ⚠ ${missingFields.length} pól wymaga uwagi
+      </div>
     </div>
 
-    <div style="margin-bottom: 20px;">
-      <h3 style="font-size: 16px; margin-bottom: 12px; color: #555;">Niewypełnione pola:</h3>
-      <ul style="margin: 0; padding-left: 20px; line-height: 1.8;">
+    <div style="margin-bottom: 20px; padding: 16px; background: #e8f5e9; border-radius: 8px;">
+      <div style="font-size: 14px; color: #2e7d32; margin-bottom: 8px;"><strong>⏱ Czas wypełniania:</strong></div>
+      <div style="font-size: 32px; font-weight: bold; color: #4CAF50; text-align: center; margin: 8px 0;">${elapsedTime}s</div>
+      <div style="font-size: 13px; color: #666; text-align: center;">
+        Ręcznie zajęłoby to ~${manualTimeMinutes} minut<br>
+        <strong style="color: #4CAF50;">Zaoszczędzono ~${savedMinutes} minut!</strong>
+      </div>
+    </div>
   `;
 
-  missingFields.forEach(field => {
+  if (missingFields.length > 0) {
     content += `
-      <li style="margin-bottom: 8px;">
-        <strong>${field.question}</strong>
-        <div style="font-size: 13px; color: #666;">↳ ${field.reason}</div>
-      </li>
+      <div style="margin-bottom: 20px;">
+        <h3 style="font-size: 16px; margin-bottom: 12px; color: #ff9800;">⚠ Wymagają ręcznej weryfikacji:</h3>
+        <ul style="margin: 0; padding-left: 20px; line-height: 1.8; max-height: 150px; overflow-y: auto;">
     `;
-  });
 
-  content += `</ul></div>`;
+    missingFields.forEach(field => {
+      content += `
+        <li style="margin-bottom: 8px;">
+          <strong>${field.question}</strong>
+          <div style="font-size: 12px; color: #666;">↳ ${field.reason}</div>
+        </li>
+      `;
+    });
+
+    content += `</ul></div>`;
+  }
 
   if (suggestions.length > 0) {
     content += `
       <div style="margin-bottom: 20px; padding: 12px; background: #e3f2fd; border-left: 4px solid #2196f3; border-radius: 4px;">
-        <h3 style="font-size: 16px; margin-bottom: 12px; color: #1976d2;">💡 Dodaj do opcji rozszerzenia:</h3>
-        <ul style="margin: 0; padding-left: 20px; line-height: 1.8;">
+        <h3 style="font-size: 14px; margin-bottom: 8px; color: #1976d2;">💡 Dodaj do opcji rozszerzenia:</h3>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
     `;
 
     suggestions.forEach(sug => {
-      content += `<li><code style="background: #fff; padding: 2px 6px; border-radius: 3px; font-size: 13px;">${sug}</code></li>`;
+      content += `<code style="background: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; border: 1px solid #ddd;">${sug}</code>`;
     });
 
     content += `
-        </ul>
+        </div>
       </div>
     `;
   }
 
   content += `
-    <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #e0e0e0;">
-      <strong style="font-size: 14px;">Jak dodać dane:</strong>
-      <ol style="margin: 8px 0 0 0; padding-left: 20px; font-size: 13px; line-height: 1.6; color: #666;">
-        <li>Kliknij prawym na ikonę rozszerzenia</li>
-        <li>Wybierz "Opcje"</li>
-        <li>Dodaj brakujące pola</li>
-      </ol>
-    </div>
-
-    <div style="text-align: center; margin-top: 20px;">
-      <button id="close-summary-modal" style="
-        background: #ff9800;
+    <div style="display: flex; gap: 10px; margin-top: 20px;">
+      <button id="scroll-to-first-missing" style="
+        flex: 1;
+        background: #2196f3;
         color: white;
         border: none;
-        padding: 10px 24px;
+        padding: 10px 16px;
         border-radius: 6px;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
         cursor: pointer;
         transition: background 0.2s;
-      ">Rozumiem</button>
+      ">⬇ Przewiń do pierwszego</button>
+
+      <button id="open-options" style="
+        flex: 1;
+        background: #ff9800;
+        color: white;
+        border: none;
+        padding: 10px 16px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+      ">⚙ Otwórz opcje</button>
+
+      <button id="close-summary-modal" style="
+        flex: 1;
+        background: #4CAF50;
+        color: white;
+        border: none;
+        padding: 10px 16px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.2s;
+      ">✓ Zamknij</button>
     </div>
 
     <div style="text-align: center; margin-top: 12px; font-size: 12px; color: #999;">
-      To okno zamknie się automatycznie za 30s
+      💡 Kliknij zielony badge ✓ obok pola aby ocenić poprawność
+    </div>
+
+    <div style="text-align: center; margin-top: 8px; font-size: 11px; color: #bbb;">
+      Okno zamknie się automatycznie za 30s
     </div>
   `;
 
   modal.innerHTML = content;
 
-  // Add close button handler
+  // Add button handlers
   setTimeout(() => {
+    // Close button
     const closeBtn = document.getElementById('close-summary-modal');
     if (closeBtn) {
-      closeBtn.addEventListener('click', () => modal.remove());
+      closeBtn.addEventListener('click', () => {
+        modal.remove();
+        const overlay = document.getElementById('modal-overlay');
+        if (overlay) overlay.remove();
+      });
       closeBtn.addEventListener('mouseenter', (e) => {
-        e.target.style.background = '#f57c00';
+        e.target.style.background = '#45a049';
       });
       closeBtn.addEventListener('mouseleave', (e) => {
+        e.target.style.background = '#4CAF50';
+      });
+    }
+
+    // Scroll to first missing field button
+    const scrollBtn = document.getElementById('scroll-to-first-missing');
+    if (scrollBtn && missingFields.length > 0) {
+      scrollBtn.addEventListener('click', () => {
+        // Find first missing field by question text
+        const firstQuestion = missingFields[0].question;
+        const labels = Array.from(document.querySelectorAll('label, .label, [for]'));
+        for (const label of labels) {
+          if (label.textContent.includes(firstQuestion) || label.textContent.includes(firstQuestion.split(':')[0])) {
+            label.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Highlight it
+            label.style.transition = 'background 0.3s';
+            label.style.background = '#fff59d';
+            setTimeout(() => {
+              label.style.background = '';
+            }, 2000);
+            break;
+          }
+        }
+        modal.remove();
+        const overlay = document.getElementById('modal-overlay');
+        if (overlay) overlay.remove();
+      });
+      scrollBtn.addEventListener('mouseenter', (e) => {
+        e.target.style.background = '#1976d2';
+      });
+      scrollBtn.addEventListener('mouseleave', (e) => {
+        e.target.style.background = '#2196f3';
+      });
+    }
+
+    // Open options button
+    const optionsBtn = document.getElementById('open-options');
+    if (optionsBtn) {
+      optionsBtn.addEventListener('click', () => {
+        chrome.runtime.sendMessage({ action: 'openOptions' });
+        modal.remove();
+        const overlay = document.getElementById('modal-overlay');
+        if (overlay) overlay.remove();
+      });
+      optionsBtn.addEventListener('mouseenter', (e) => {
+        e.target.style.background = '#f57c00';
+      });
+      optionsBtn.addEventListener('mouseleave', (e) => {
         e.target.style.background = '#ff9800';
       });
     }
@@ -1933,6 +2020,7 @@ function createSummaryModal(missingFields, suggestions) {
 
   // Add overlay
   const overlay = document.createElement('div');
+  overlay.id = 'modal-overlay';
   overlay.style.cssText = `
     position: fixed;
     top: 0;
