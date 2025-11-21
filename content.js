@@ -1311,8 +1311,19 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             const isInput = element.tagName === 'INPUT';
             const isTextarea = element.tagName === 'TEXTAREA';
 
-            // Focus first - required for many frameworks
-            element.focus();
+            // Check if this input might have autocomplete/dropdown behavior
+            // If so, skip focus to avoid opening unwanted popups
+            const mightHaveDropdown =
+              element.getAttribute('role') === 'combobox' ||
+              element.getAttribute('aria-haspopup') ||
+              element.getAttribute('aria-autocomplete') ||
+              element.getAttribute('list') || // datalist
+              /autocomplete|dropdown|select|combobox/i.test(element.className || '');
+
+            // Focus first - required for many frameworks (but skip for potential dropdowns)
+            if (!mightHaveDropdown) {
+              element.focus();
+            }
 
             if (isInput || isTextarea) {
               // Get native value setter (works with React/Vue/Angular)
@@ -1358,9 +1369,11 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             const changeEvent = new Event('change', { bubbles: true, cancelable: true });
             element.dispatchEvent(changeEvent);
 
-            // Small delay then blur to trigger validation
+            // Small delay then blur to trigger validation (skip for potential dropdowns)
             await new Promise(resolve => setTimeout(resolve, 50));
-            element.blur();
+            if (!mightHaveDropdown) {
+              element.blur();
+            }
 
             aChangeWasMade = true;
             filled = true;
