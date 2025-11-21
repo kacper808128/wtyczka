@@ -75,6 +75,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true; // Keeps the message channel open for async response
   }
+
+  if (request.action === 'openOptions') {
+    chrome.runtime.openOptionsPage();
+    sendResponse({ success: true });
+    return true;
+  }
 });
 
 // Save application to storage
