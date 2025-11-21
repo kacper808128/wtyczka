@@ -1435,9 +1435,24 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           const inputId = (element.id || '').toLowerCase();
           const accept = (element.accept || '').toLowerCase();
 
-          // Get surrounding container text for additional context
+          // Get surrounding container text for additional context - try multiple methods
           let containerText = '';
-          const container = element.closest('.js-drag-and-drop, .drag-and-drop, .file-upload, .upload-container, [class*="upload"], [class*="file"]');
+
+          // Method 1: Try specific upload-related container classes
+          let container = element.closest('.js-drag-and-drop, .drag-and-drop, .file-upload, .upload-container, [class*="upload"], [class*="file"], [class*="attachment"]');
+
+          // Method 2: If no specific container, use parent element (up to 3 levels)
+          if (!container) {
+            container = element.parentElement;
+            // Go up a few levels to find meaningful text
+            for (let i = 0; i < 3 && container; i++) {
+              if (container.textContent && container.textContent.trim().length > 5) {
+                break;
+              }
+              container = container.parentElement;
+            }
+          }
+
           if (container) {
             containerText = container.textContent.toLowerCase();
           }
@@ -1445,8 +1460,8 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
           const combinedText = `${question || ''} ${inputName} ${inputId} ${containerText}`.toLowerCase();
 
           // Extended keywords for CV/resume file uploads
-          const keywords = ['cv', 'resume', 'życiorys', 'załącz', 'plik', 'upload', 'file', 'dokument', 'document', 'lebenslauf'];
-          const fileTypeIndicators = ['.doc', '.pdf', 'docx'];
+          const keywords = ['cv', 'resume', 'życiorys', 'załącz', 'plik', 'upload', 'file', 'dokument', 'document', 'lebenslauf', 'attachment', 'add document', 'dodaj'];
+          const fileTypeIndicators = ['.doc', '.pdf', 'docx', 'pdf,', 'docx,'];
 
           // Check keywords in question/name/id OR check if it accepts doc/pdf files
           const hasKeyword = keywords.some(kw => combinedText.includes(kw));
