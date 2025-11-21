@@ -307,19 +307,34 @@ function detectFieldType(element) {
 
   // DATEPICKER detection
   // Exclude common false positives like "gender" by checking more strictly
+  // Use word boundaries to avoid matching "candidate", "update", "mandate" etc.
   const dateIndicators = [
-    'date', 'calendar', 'picker', 'datepicker', 'fecha', 'datum',
-    'dostępność', 'availability', 'birth', 'urodzenia'
+    'calendar', 'picker', 'datepicker', 'fecha', 'datum',
+    'birth', 'urodzenia'
   ];
+  // These need word boundary matching to avoid false positives
+  const dateWordsNeedingBoundary = ['date', 'data', 'dostępność', 'availability'];
 
-  const hasDateClass = element.className && dateIndicators.some(ind =>
-    element.className.toLowerCase().includes(ind)
+  // Helper to check if a word exists with boundaries (not inside another word)
+  const hasWordWithBoundary = (text, word) => {
+    if (!text) return false;
+    const lowerText = text.toLowerCase();
+    // Match word at boundaries (start/end of string, or surrounded by non-word chars)
+    const regex = new RegExp(`(^|[^a-z])${word}([^a-z]|$)`, 'i');
+    return regex.test(lowerText);
+  };
+
+  const hasDateClass = element.className && (
+    dateIndicators.some(ind => element.className.toLowerCase().includes(ind)) ||
+    dateWordsNeedingBoundary.some(word => hasWordWithBoundary(element.className, word))
   );
-  const hasDateId = element.id && dateIndicators.some(ind =>
-    element.id.toLowerCase().includes(ind)
+  const hasDateId = element.id && (
+    dateIndicators.some(ind => element.id.toLowerCase().includes(ind)) ||
+    dateWordsNeedingBoundary.some(word => hasWordWithBoundary(element.id, word))
   );
-  const hasDatePlaceholder = element.placeholder && dateIndicators.some(ind =>
-    element.placeholder.toLowerCase().includes(ind)
+  const hasDatePlaceholder = element.placeholder && (
+    dateIndicators.some(ind => element.placeholder.toLowerCase().includes(ind)) ||
+    dateWordsNeedingBoundary.some(word => hasWordWithBoundary(element.placeholder, word))
   );
   const hasDateType = element.type === 'date' || element.type === 'datetime-local';
   const hasDatePattern = element.pattern && /date|dd|mm|yyyy/i.test(element.pattern);
@@ -1341,11 +1356,35 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
       try {
         if (element.type === 'file') {
+          // Check if this looks like a CV/resume upload field
           const question = getQuestionForInput(element);
-          const keywords = ['cv', 'resume', 'życiorys', 'załącz', 'plik'];
-          if (question && keywords.some(keyword => question.toLowerCase().includes(keyword))) {
+          const inputName = (element.name || '').toLowerCase();
+          const inputId = (element.id || '').toLowerCase();
+          const accept = (element.accept || '').toLowerCase();
+
+          // Get surrounding container text for additional context
+          let containerText = '';
+          const container = element.closest('.js-drag-and-drop, .drag-and-drop, .file-upload, .upload-container, [class*="upload"], [class*="file"]');
+          if (container) {
+            containerText = container.textContent.toLowerCase();
+          }
+
+          const combinedText = `${question || ''} ${inputName} ${inputId} ${containerText}`.toLowerCase();
+
+          // Extended keywords for CV/resume file uploads
+          const keywords = ['cv', 'resume', 'życiorys', 'załącz', 'plik', 'upload', 'file', 'dokument', 'document', 'lebenslauf'];
+          const fileTypeIndicators = ['.doc', '.pdf', 'docx'];
+
+          // Check keywords in question/name/id OR check if it accepts doc/pdf files
+          const hasKeyword = keywords.some(kw => combinedText.includes(kw));
+          const acceptsResume = fileTypeIndicators.some(ft => accept.includes(ft));
+
+          if (hasKeyword || acceptsResume) {
+            console.log(`[Gemini Filler] File input detected as CV upload: question="${question}", name="${inputName}", accept="${accept}"`);
             await handleFileInput(element);
             processedElements.add(element);
+          } else {
+            console.log(`[Gemini Filler] File input skipped (not CV): question="${question}", name="${inputName}"`);
           }
           continue;
         }
