@@ -2594,8 +2594,32 @@ function getQuestionForInput(input) {
   }
 
   if (!questionText && input.getAttribute('placeholder')) {
-    questionText = input.getAttribute('placeholder').trim();
-    matchStrategy = '6:placeholder';
+    const placeholder = input.getAttribute('placeholder').trim();
+
+    // Special handling for Od/Do (From/To) range fields - look for parent label
+    const rangePatterns = ['od', 'do', 'from', 'to', 'min', 'max', 'minimum', 'maximum'];
+    if (rangePatterns.includes(placeholder.toLowerCase())) {
+      // Look for a parent label that applies to the whole range
+      let current = input;
+      let depth = 0;
+      while (current.parentElement && depth < 6) {
+        const parent = current.parentElement;
+        const label = parent.querySelector('label');
+        if (label && !label.contains(input)) {
+          // Found a label at parent level - combine with placeholder
+          questionText = `${label.textContent.trim()} (${placeholder})`;
+          matchStrategy = `6:placeholder-with-parent-label[depth=${depth}]`;
+          break;
+        }
+        current = parent;
+        depth++;
+      }
+    }
+
+    if (!questionText) {
+      questionText = placeholder;
+      matchStrategy = '6:placeholder';
+    }
   }
 
   return questionText;
@@ -2913,6 +2937,23 @@ async function handleCustomResumeButtons(processedElements) {
         if (resumeKeywords.some(keyword => combinedText.includes(keyword))) {
           console.log('[Gemini Filler] Found custom resume upload button:', button);
           console.log('[Gemini Filler] Combined text:', combinedText);
+
+          // Check if there's already a file input with files attached nearby
+          const nearbyFileInputs = button.closest('form, [class*="upload"], [class*="file"]')?.querySelectorAll('input[type="file"]') || [];
+          let alreadyHasFile = false;
+          for (const fi of nearbyFileInputs) {
+            if (fi.files && fi.files.length > 0) {
+              console.log('[Gemini Filler] File input already has files, skipping button click');
+              alreadyHasFile = true;
+              break;
+            }
+          }
+
+          if (alreadyHasFile) {
+            processedElements.add(button);
+            continue;
+          }
+
           processedElements.add(button);
 
           try {
@@ -2985,16 +3026,41 @@ async function handleFileInput(fileInputElement) {
       return;
     }
 
+    // Check if files already attached
+    if (fileInputElement.files && fileInputElement.files.length > 0) {
+      console.log('[Gemini Filler] File input already has files, skipping');
+      return;
+    }
+
     const file = new File([cvData.blob], cvData.name, { type: cvData.type });
     const dataTransfer = new DataTransfer();
     dataTransfer.items.add(file);
     fileInputElement.files = dataTransfer.files;
 
-    // Dispatch events to notify the page of the change
+    // Dispatch multiple events to ensure frameworks pick up the change
+    // Focus first for some frameworks
+    fileInputElement.focus();
+
+    // Standard change event
     fileInputElement.dispatchEvent(new Event('change', { bubbles: true }));
     fileInputElement.dispatchEvent(new Event('input', { bubbles: true }));
 
-    console.log(`[Gemini Filler] CV "${cvData.name}" attached to file input.`);
+    // Try React-specific approach
+    const reactKey = Object.keys(fileInputElement).find(key => key.startsWith('__reactProps'));
+    if (reactKey && fileInputElement[reactKey]?.onChange) {
+      console.log('[Gemini Filler] Triggering React onChange for file input');
+      fileInputElement[reactKey].onChange({ target: fileInputElement });
+    }
+
+    // Blur to trigger validation
+    fileInputElement.blur();
+
+    // Verify files were set
+    if (fileInputElement.files && fileInputElement.files.length > 0) {
+      console.log(`[Gemini Filler] CV "${cvData.name}" attached to file input. Files: ${fileInputElement.files.length}`);
+    } else {
+      console.warn('[Gemini Filler] Files property not updated after DataTransfer - framework may intercept');
+    }
   } catch (error) {
     console.error('[Gemini Filler] Failed to attach CV:', error);
     // Don't throw - just log the error and continue with other fields
