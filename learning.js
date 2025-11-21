@@ -542,31 +542,47 @@ function calculateWilsonScore(positive, negative) {
 
 /**
  * Calculate overall confidence combining Wilson score with other factors
+ *
+ * Confidence is based on REAL user feedback only:
+ * - 👍 clicks increase confidence
+ * - 👎 clicks decrease confidence
+ * - ✏️ edits count as strong positive (user provided correct answer)
+ *
+ * Without user feedback, confidence stays at base level (0.5).
+ * Frequency and recency are secondary factors.
  */
 function calculateOverallConfidence(question) {
-  const wilsonScore = calculateWilsonScore(
-    question.feedback_positive || 0,
-    question.feedback_negative || 0
-  );
+  const positive = question.feedback_positive || 0;
+  const negative = question.feedback_negative || 0;
+  const totalFeedback = positive + negative;
 
-  // Frequency factor: more uses = more confidence (capped)
-  const frequencyFactor = Math.min(1, (question.frequency || 1) / 10);
+  // Frequency factor: more uses = slightly more confidence (capped)
+  // But this is a weak signal without real feedback
+  const frequencyFactor = Math.min(1, (question.frequency || 1) / 15);
 
   // Recency factor: recent use = more relevant
   const daysSinceUsed = question.last_used
     ? (Date.now() - new Date(question.last_used).getTime()) / (1000 * 60 * 60 * 24)
     : 30;
-  const recencyFactor = Math.max(0.5, 1 - daysSinceUsed / 60); // Decay over 60 days
+  const recencyFactor = Math.max(0.5, 1 - daysSinceUsed / 60);
 
-  // Combine factors (Wilson score is primary, others are modifiers)
-  const totalFeedback = (question.feedback_positive || 0) + (question.feedback_negative || 0);
+  // No feedback at all - stay at neutral confidence
+  // User hasn't validated this answer yet
+  if (totalFeedback === 0) {
+    // Base confidence 0.5, with small boost from frequency and recency
+    // Max possible without feedback: 0.5 + 0.1 + 0.05 = 0.65
+    return 0.5 + frequencyFactor * 0.1 + recencyFactor * 0.05;
+  }
+
+  // With feedback - Wilson score becomes primary
+  const wilsonScore = calculateWilsonScore(positive, negative);
 
   if (totalFeedback >= 3) {
     // Enough feedback - Wilson score is reliable
-    return wilsonScore * 0.7 + frequencyFactor * 0.2 + recencyFactor * 0.1;
+    return wilsonScore * 0.8 + frequencyFactor * 0.12 + recencyFactor * 0.08;
   } else {
-    // Not enough feedback - rely more on frequency and recency
-    return wilsonScore * 0.3 + frequencyFactor * 0.4 + recencyFactor * 0.3;
+    // Some feedback but not much - blend Wilson with frequency/recency
+    return wilsonScore * 0.5 + frequencyFactor * 0.3 + recencyFactor * 0.2;
   }
 }
 
@@ -638,6 +654,11 @@ async function saveNewQuestion(questionData) {
 
 /**
  * Update statistics for existing question
+ * NOTE: This function does NOT modify feedback counters automatically.
+ * Feedback should only come from explicit user actions (👍/👎/✏️).
+ * Auto-incrementing feedback when AI fills the same answer would be
+ * "self-confirmation" - AI telling itself it's doing a good job without
+ * any real user validation.
  */
 async function updateQuestionStats(question, newAnswer) {
   try {
@@ -653,17 +674,15 @@ async function updateQuestionStats(question, newAnswer) {
         questions[index].context.domain = getCurrentDomain();
       }
 
-      // If answer changed, count as implicit negative feedback
+      // If AI decided to use a different answer, just update it
+      // Don't count this as negative feedback - it's AI changing its mind,
+      // not user rejecting the answer
       if (questions[index].user_answer !== newAnswer) {
         questions[index].user_answer = newAnswer;
-        questions[index].feedback_negative = (questions[index].feedback_negative || 0) + 1;
         console.log('[Learning] Answer updated for:', questions[index].question_text);
-      } else {
-        // Same answer = implicit positive feedback
-        questions[index].feedback_positive = (questions[index].feedback_positive || 0) + 1;
       }
 
-      // Recalculate confidence using Wilson score
+      // Recalculate confidence (based on real user feedback only)
       questions[index].confidence = calculateOverallConfidence(questions[index]);
 
       await saveLearnedQuestions(questions);
