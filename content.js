@@ -151,10 +151,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       (async () => {
         try {
           await fillFormWithAI(data);
-          showSuccessOverlay();
-
-          // Modal will stay visible until user clicks "Dodaj do trackera" or "Pomiń"
-          // No auto-hide for success overlay
+          // Summary modal is shown inside fillFormWithAI
+          // Hide the loading overlay
+          hideOverlay();
 
           sendResponse({ status: "success" });
         } catch (error) {
@@ -1893,54 +1892,76 @@ function createSummaryModal(missingFields, suggestions, filledFields, totalField
     `;
   }
 
+  // Tracker section
   content += `
-    <div style="display: flex; gap: 10px; margin-top: 20px;">
-      <button id="scroll-to-first-missing" style="
-        flex: 1;
-        background: #2196f3;
-        color: white;
-        border: none;
-        padding: 10px 16px;
-        border-radius: 6px;
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: background 0.2s;
-      ">⬇ Przewiń do pierwszego</button>
+    <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #e0e0e0;">
+      <p style="font-size: 14px; margin-bottom: 12px; color: #666;">📋 Dodać tę aplikację do trackera?</p>
+      <div style="display: flex; gap: 10px;">
+        <button id="add-to-tracker-btn" style="
+          flex: 1;
+          background: #4CAF50;
+          color: white;
+          border: none;
+          padding: 10px 16px;
+          border-radius: 6px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.2s;
+        ">📋 Dodaj do trackera</button>
 
-      <button id="open-options" style="
-        flex: 1;
-        background: #ff9800;
-        color: white;
-        border: none;
-        padding: 10px 16px;
-        border-radius: 6px;
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: background 0.2s;
-      ">⚙ Otwórz opcje</button>
-
-      <button id="close-summary-modal" style="
-        flex: 1;
-        background: #4CAF50;
-        color: white;
-        border: none;
-        padding: 10px 16px;
-        border-radius: 6px;
-        font-size: 13px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: background 0.2s;
-      ">✓ Zamknij</button>
+        <button id="close-summary-modal" style="
+          flex: 1;
+          background: #999;
+          color: white;
+          border: none;
+          padding: 10px 16px;
+          border-radius: 6px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.2s;
+        ">Pomiń</button>
+      </div>
     </div>
+  `;
 
+  // Additional action buttons (only if there are missing fields or suggestions)
+  if (missingFields.length > 0 || suggestions.length > 0) {
+    content += `
+      <div style="display: flex; gap: 10px; margin-top: 12px;">
+        ${missingFields.length > 0 ? `
+        <button id="scroll-to-first-missing" style="
+          flex: 1;
+          background: #2196f3;
+          color: white;
+          border: none;
+          padding: 8px 12px;
+          border-radius: 6px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: background 0.2s;
+        ">⬇ Przewiń do pierwszego</button>
+        ` : ''}
+
+        <button id="open-options" style="
+          flex: 1;
+          background: #ff9800;
+          color: white;
+          border: none;
+          padding: 8px 12px;
+          border-radius: 6px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: background 0.2s;
+        ">⚙ Otwórz opcje</button>
+      </div>
+    `;
+  }
+
+  content += `
     <div style="text-align: center; margin-top: 12px; font-size: 12px; color: #999;">
       💡 Kliknij zielony badge ✓ obok pola aby ocenić poprawność
-    </div>
-
-    <div style="text-align: center; margin-top: 8px; font-size: 11px; color: #bbb;">
-      Okno zamknie się automatycznie za 30s
     </div>
   `;
 
@@ -1948,7 +1969,25 @@ function createSummaryModal(missingFields, suggestions, filledFields, totalField
 
   // Add button handlers
   setTimeout(() => {
-    // Close button
+    // Add to tracker button
+    const trackerBtn = document.getElementById('add-to-tracker-btn');
+    if (trackerBtn) {
+      trackerBtn.addEventListener('click', () => {
+        modal.remove();
+        const overlay = document.getElementById('modal-overlay');
+        if (overlay) overlay.remove();
+        const jobInfo = extractJobInfoFromPage();
+        showAddApplicationModalFromContent(jobInfo);
+      });
+      trackerBtn.addEventListener('mouseenter', (e) => {
+        e.target.style.background = '#45a049';
+      });
+      trackerBtn.addEventListener('mouseleave', (e) => {
+        e.target.style.background = '#4CAF50';
+      });
+    }
+
+    // Close/Skip button
     const closeBtn = document.getElementById('close-summary-modal');
     if (closeBtn) {
       closeBtn.addEventListener('click', () => {
@@ -1957,10 +1996,10 @@ function createSummaryModal(missingFields, suggestions, filledFields, totalField
         if (overlay) overlay.remove();
       });
       closeBtn.addEventListener('mouseenter', (e) => {
-        e.target.style.background = '#45a049';
+        e.target.style.background = '#777';
       });
       closeBtn.addEventListener('mouseleave', (e) => {
-        e.target.style.background = '#4CAF50';
+        e.target.style.background = '#999';
       });
     }
 
