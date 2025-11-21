@@ -1,343 +1,1162 @@
 <!DOCTYPE html>
-<html>
+<html lang="pl">
 <head>
   <meta charset="UTF-8">
-  <title>Recruitment Form Filler Settings</title>
+  <title>Recruitment Form Filler - Ustawienia</title>
   <style>
-    body { font-family: sans-serif; padding: 0; margin: 0; }
-    h1 { font-size: 1.5em; margin: 0; padding: 20px 20px 10px 20px; }
-    h2 { font-size: 1.2em; margin-top: 20px; }
-    .form-group { margin-bottom: 15px; }
-    label { display: block; margin-bottom: 5px; }
-    input[type="text"], input[type="password"] { width: 300px; padding: 5px; }
-    button { padding: 10px 15px; cursor: pointer; }
-    #data-container { margin-top: 20px; }
-    .data-row { display: flex; gap: 10px; margin-bottom: 10px; }
+    :root {
+      --primary: #4CAF50;
+      --primary-dark: #388E3C;
+      --primary-light: #81C784;
+      --primary-alpha: rgba(76, 175, 80, 0.1);
+      --secondary: #2196F3;
+      --secondary-dark: #1976D2;
+      --danger: #F44336;
+      --danger-dark: #D32F2F;
+      --warning: #FF9800;
+      --success: #4CAF50;
+
+      --bg-primary: #ffffff;
+      --bg-secondary: #f8f9fa;
+      --bg-tertiary: #f0f2f5;
+      --card-bg: #ffffff;
+      --text-primary: #1a1a2e;
+      --text-secondary: #666666;
+      --text-muted: #999999;
+      --border-color: #e0e0e0;
+      --border-light: #f0f0f0;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 16px;
+      --transition: all 0.3s ease;
+    }
+
+    body.dark-mode {
+      --bg-primary: #0f0f1a;
+      --bg-secondary: #1a1a2e;
+      --bg-tertiary: #16213e;
+      --card-bg: #1a1a2e;
+      --text-primary: #e8e8e8;
+      --text-secondary: #a0a0a0;
+      --text-muted: #666666;
+      --border-color: #2a2a4a;
+      --border-light: #252545;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.2);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      transition: var(--transition);
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      padding: 25px 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      box-shadow: var(--shadow-md);
+    }
+
+    .header-content {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .header-logo {
+      font-size: 32px;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+    }
+
+    .header-text h1 {
+      color: white;
+      font-size: 20px;
+      font-weight: 600;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+
+    .header-text p {
+      color: rgba(255,255,255,0.85);
+      font-size: 12px;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .theme-toggle {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      transition: var(--transition);
+      color: white;
+    }
+
+    .theme-toggle:hover {
+      background: rgba(255,255,255,0.3);
+      transform: rotate(20deg);
+    }
 
     /* Tabs */
     .tabs {
       display: flex;
-      border-bottom: 2px solid #e0e0e0;
-      background: #f8f9fa;
+      background: var(--bg-primary);
       padding: 0 20px;
+      border-bottom: 1px solid var(--border-color);
       position: sticky;
-      top: 0;
-      z-index: 100;
+      top: 82px;
+      z-index: 999;
+      overflow-x: auto;
     }
+
     .tab-btn {
-      padding: 12px 20px;
+      padding: 16px 24px;
       background: none;
       border: none;
       cursor: pointer;
       font-weight: 500;
-      color: #666;
-      transition: all 0.3s;
+      font-size: 14px;
+      color: var(--text-secondary);
+      transition: var(--transition);
       border-bottom: 3px solid transparent;
-      margin-bottom: -2px;
+      margin-bottom: -1px;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
+
     .tab-btn:hover {
-      color: #333;
-      background: rgba(0,0,0,0.05);
+      color: var(--text-primary);
+      background: var(--bg-secondary);
     }
+
     .tab-btn.active {
-      color: #4CAF50;
-      border-bottom-color: #4CAF50;
+      color: var(--primary);
+      border-bottom-color: var(--primary);
     }
+
+    .tab-icon {
+      font-size: 16px;
+    }
+
+    /* Tab Content */
     .tab-content {
       display: none;
-      padding: 20px;
-      max-width: 1200px;
+      padding: 30px;
+      max-width: 1400px;
+      margin: 0 auto;
+      animation: fadeIn 0.3s ease;
     }
+
     .tab-content.active {
       display: block;
     }
 
-    /* Learned questions styling */
-    .learned-questions-controls { margin: 15px 0; display: flex; gap: 10px; flex-wrap: wrap; }
-    .question-card {
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      padding: 15px;
-      margin-bottom: 15px;
-      background: #f9f9f9;
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
     }
-    .question-header {
+
+    /* Cards */
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border-light);
+      transition: var(--transition);
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow-md);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .card-icon {
+      width: 44px;
+      height: 44px;
+      background: var(--primary-alpha);
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .card-subtitle {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    /* Form Elements */
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-label {
+      display: block;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .form-hint {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    .form-input {
+      width: 100%;
+      max-width: 400px;
+      padding: 12px 16px;
+      border: 2px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      transition: var(--transition);
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-alpha);
+    }
+
+    .form-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .input-group {
+      display: flex;
+      gap: 10px;
+      max-width: 400px;
+    }
+
+    .input-group .form-input {
+      flex: 1;
+      max-width: none;
+    }
+
+    /* Buttons */
+    .btn {
+      padding: 12px 20px;
+      border: none;
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: var(--transition);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: white;
+      box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+    }
+
+    .btn-secondary {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn-secondary:hover {
+      background: var(--border-color);
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, var(--danger) 0%, var(--danger-dark) 100%);
+      color: white;
+    }
+
+    .btn-danger:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
+    }
+
+    .btn-info {
+      background: linear-gradient(135deg, var(--secondary) 0%, var(--secondary-dark) 100%);
+      color: white;
+    }
+
+    .btn-info:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+    }
+
+    .btn-sm {
+      padding: 8px 14px;
+      font-size: 13px;
+    }
+
+    .btn-icon {
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border-radius: var(--radius-sm);
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    /* Toggle Switch */
+    .toggle-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+    }
+
+    .toggle {
+      position: relative;
+      width: 50px;
+      height: 26px;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--border-color);
+      border-radius: 26px;
+      transition: var(--transition);
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 20px;
+      width: 20px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: var(--transition);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .toggle input:checked + .toggle-slider {
+      background: var(--primary);
+    }
+
+    .toggle input:checked + .toggle-slider:before {
+      transform: translateX(24px);
+    }
+
+    .toggle-label {
+      font-size: 14px;
+      color: var(--text-primary);
+    }
+
+    /* Data Rows */
+    .data-row {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 12px;
+      align-items: center;
+      padding: 12px;
+      background: var(--bg-secondary);
+      border-radius: var(--radius-md);
+      transition: var(--transition);
+    }
+
+    .data-row:hover {
+      background: var(--bg-tertiary);
+    }
+
+    .data-row input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 2px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      transition: var(--transition);
+    }
+
+    .data-row input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .data-row input:first-child {
+      max-width: 180px;
+    }
+
+    /* Status Messages */
+    .status-message {
+      padding: 12px 16px;
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      margin-top: 15px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-10px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    .status-success {
+      background: rgba(76, 175, 80, 0.1);
+      color: var(--success);
+      border: 1px solid rgba(76, 175, 80, 0.3);
+    }
+
+    .status-error {
+      background: rgba(244, 67, 54, 0.1);
+      color: var(--danger);
+      border: 1px solid rgba(244, 67, 54, 0.3);
+    }
+
+    .status-warning {
+      background: rgba(255, 152, 0, 0.1);
+      color: var(--warning);
+      border: 1px solid rgba(255, 152, 0, 0.3);
+    }
+
+    /* Kanban Board */
+    .kanban-search {
+      margin-bottom: 20px;
+    }
+
+    .kanban-search input {
+      width: 100%;
+      max-width: 500px;
+      padding: 14px 20px;
+      padding-left: 45px;
+      border: 2px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      font-size: 14px;
+      background: var(--bg-primary) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='%23999' viewBox='0 0 24 24'%3E%3Cpath d='M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z'/%3E%3C/svg%3E") no-repeat 15px center;
+      background-size: 20px;
+      color: var(--text-primary);
+      transition: var(--transition);
+    }
+
+    .kanban-search input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-alpha);
+    }
+
+    .kanban-board {
+      display: flex;
+      gap: 16px;
+      overflow-x: auto;
+      padding-bottom: 20px;
+      min-height: 500px;
+    }
+
+    .kanban-column {
+      flex: 1;
+      min-width: 280px;
+      max-width: 320px;
+      background: var(--bg-tertiary);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+    }
+
+    .kanban-column-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 10px;
-      font-weight: bold;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--border-color);
     }
-    .question-text { flex: 1; }
+
+    .kanban-column-header h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .kanban-count {
+      background: var(--bg-primary);
+      color: var(--text-secondary);
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid var(--border-color);
+    }
+
+    .kanban-cards {
+      min-height: 400px;
+    }
+
+    .kanban-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      margin-bottom: 12px;
+      cursor: grab;
+      transition: var(--transition);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .kanban-card:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+      border-color: var(--primary);
+    }
+
+    .kanban-card.dragging {
+      opacity: 0.5;
+      cursor: grabbing;
+    }
+
+    .kanban-cards.drag-over {
+      background: var(--primary-alpha);
+      border-radius: var(--radius-md);
+    }
+
+    .kanban-card-title {
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .kanban-card-company {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+    }
+
+    .kanban-card-details {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .kanban-card-detail {
+      margin: 4px 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .kanban-card-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border-light);
+    }
+
+    .kanban-card-btn {
+      flex: 1;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      padding: 8px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      cursor: pointer;
+      transition: var(--transition);
+      color: var(--text-secondary);
+    }
+
+    .kanban-card-btn:hover {
+      background: var(--primary-alpha);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .empty-kanban {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    /* Question Cards */
+    .question-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      margin-bottom: 16px;
+      transition: var(--transition);
+    }
+
+    .question-card:hover {
+      box-shadow: var(--shadow-md);
+      border-color: var(--primary);
+    }
+
+    .question-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+
+    .question-text {
+      flex: 1;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-size: 15px;
+    }
+
     .confidence-badge {
-      padding: 4px 8px;
-      border-radius: 4px;
+      padding: 6px 12px;
+      border-radius: 20px;
       color: white;
-      font-size: 0.85em;
-      font-weight: bold;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
     }
+
+    .confidence-high { background: linear-gradient(135deg, #4CAF50, #388E3C); }
+    .confidence-medium { background: linear-gradient(135deg, #FF9800, #F57C00); }
+    .confidence-low { background: linear-gradient(135deg, #F44336, #D32F2F); }
+
     .question-details {
-      font-size: 0.9em;
-      color: #666;
-      line-height: 1.8;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      padding: 15px;
+      background: var(--bg-secondary);
+      border-radius: var(--radius-md);
     }
+
     .question-details code {
-      background: #e8e8e8;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-family: monospace;
+      background: var(--bg-tertiary);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 12px;
+      color: var(--primary);
     }
+
     .question-actions {
-      margin-top: 10px;
+      margin-top: 15px;
       display: flex;
       gap: 10px;
     }
-    .question-actions button {
-      padding: 6px 12px;
-      font-size: 0.9em;
+
+    /* Stats Bar */
+    .stats-bar {
+      display: flex;
+      gap: 20px;
+      padding: 16px 20px;
+      background: var(--bg-tertiary);
+      border-radius: var(--radius-md);
+      margin-bottom: 20px;
+      flex-wrap: wrap;
     }
 
-    /* Application Tracker - Kanban Styles */
+    .stat-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .stat-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--primary-alpha);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .stat-value {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Controls Bar */
+    .controls-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .controls-bar .form-input {
+      max-width: 300px;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      padding: 20px;
+      backdrop-filter: blur(4px);
+    }
+
+    .modal-overlay.active {
+      display: flex;
+    }
+
+    .modal {
+      background: var(--card-bg);
+      border-radius: var(--radius-lg);
+      max-width: 600px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: var(--shadow-lg);
+      animation: modalIn 0.3s ease;
+    }
+
+    @keyframes modalIn {
+      from { opacity: 0; transform: scale(0.95) translateY(20px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .modal-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: var(--transition);
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-close:hover {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+    }
+
+    .modal-body {
+      padding: 24px;
+    }
+
+    .modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+
+    /* File Upload */
+    .file-upload {
+      border: 2px dashed var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 30px;
+      text-align: center;
+      transition: var(--transition);
+      cursor: pointer;
+    }
+
+    .file-upload:hover {
+      border-color: var(--primary);
+      background: var(--primary-alpha);
+    }
+
+    .file-upload-icon {
+      font-size: 40px;
+      margin-bottom: 10px;
+    }
+
+    .file-upload-text {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    .file-upload-hint {
+      color: var(--text-muted);
+      font-size: 12px;
+      margin-top: 5px;
+    }
+
+    /* Textarea */
+    textarea.form-input {
+      min-height: 150px;
+      resize: vertical;
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 13px;
+      max-width: 100%;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .header {
+        padding: 15px 20px;
+        flex-direction: column;
+        gap: 15px;
+      }
+
+      .tabs {
+        top: 130px;
+      }
+
+      .tab-content {
+        padding: 20px;
+      }
+
+      .kanban-board {
+        flex-direction: column;
+      }
+
+      .kanban-column {
+        max-width: 100%;
+      }
+
+      .question-details {
+        grid-template-columns: 1fr;
+      }
+
+      .controls-bar {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .controls-bar .form-input {
+        max-width: 100%;
+      }
+    }
+
+    /* Scrollbar Styling */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--bg-secondary);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-color);
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted);
+    }
+
+    /* Link Styling */
+    a {
+      color: var(--primary);
+      text-decoration: none;
+      transition: var(--transition);
+    }
+
+    a:hover {
+      color: var(--primary-dark);
+      text-decoration: underline;
+    }
+
+    /* Divider */
+    .divider {
+      height: 1px;
+      background: var(--border-color);
+      margin: 25px 0;
+    }
+
+    /* Tracker header */
     .tracker-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 20px;
     }
-    .btn-add {
-      background: #4CAF50;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      border-radius: 4px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.3s;
-    }
-    .btn-add:hover {
-      background: #45a049;
-    }
-    .kanban-search {
-      margin-bottom: 20px;
-    }
-    .kanban-search input {
-      width: 100%;
-      padding: 12px;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      font-size: 14px;
-    }
-    .kanban-board {
+
+    .tracker-header h2 {
+      font-size: 20px;
       display: flex;
-      gap: 15px;
-      overflow-x: auto;
-      padding-bottom: 20px;
-      min-height: 500px;
-    }
-    .kanban-column {
-      flex: 1;
-      min-width: 280px;
-      background: #f8f9fa;
-      border-radius: 8px;
-      padding: 15px;
-    }
-    .kanban-column-header {
-      display: flex;
-      justify-content: space-between;
       align-items: center;
-      margin-bottom: 15px;
-      padding-bottom: 10px;
-      border-bottom: 2px solid #e0e0e0;
-    }
-    .kanban-column-header h3 {
-      margin: 0;
-      font-size: 16px;
-      color: #333;
-    }
-    .kanban-count {
-      background: white;
-      color: #666;
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 13px;
-      font-weight: 600;
-    }
-    .kanban-cards {
-      min-height: 400px;
-    }
-    .kanban-card {
-      background: white;
-      border: 1px solid #e0e0e0;
-      border-radius: 6px;
-      padding: 15px;
-      margin-bottom: 12px;
-      cursor: grab;
-      transition: all 0.2s;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    .kanban-card:hover {
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-      transform: translateY(-2px);
-    }
-    .kanban-card.dragging {
-      opacity: 0.5;
-      cursor: grabbing;
-    }
-    .kanban-cards.drag-over {
-      background: #e8f5e9;
-    }
-    .kanban-card-title {
-      font-weight: 600;
-      font-size: 15px;
-      color: #333;
-      margin: 0 0 5px 0;
-    }
-    .kanban-card-company {
-      font-size: 14px;
-      color: #666;
-      margin: 0 0 10px 0;
-    }
-    .kanban-card-details {
-      font-size: 12px;
-      color: #999;
-      margin-bottom: 10px;
-    }
-    .kanban-card-detail {
-      margin: 3px 0;
-    }
-    .kanban-card-actions {
-      display: flex;
-      gap: 5px;
-      margin-top: 10px;
-      padding-top: 10px;
-      border-top: 1px solid #f0f0f0;
-    }
-    .kanban-card-btn {
-      flex: 1;
-      background: none;
-      border: 1px solid #ddd;
-      padding: 5px;
-      border-radius: 4px;
-      font-size: 12px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .kanban-card-btn:hover {
-      background: #f0f0f0;
-      border-color: #4CAF50;
-    }
-    .empty-kanban {
-      text-align: center;
-      padding: 40px 10px;
-      color: #999;
-      font-size: 14px;
+      gap: 10px;
     }
   </style>
 </head>
 <body>
-  <h1>⚙️ Ustawienia - Recruitment Form Filler</h1>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-content">
+      <div class="header-logo">📝</div>
+      <div class="header-text">
+        <h1>Recruitment Form Filler</h1>
+        <p>Ustawienia rozszerzenia</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="theme-toggle" id="theme-toggle" title="Zmien motyw">
+        <span id="theme-icon">🌙</span>
+      </button>
+    </div>
+  </header>
 
   <!-- Tabs Navigation -->
-  <div class="tabs">
-    <button class="tab-btn active" data-tab="general">Ogólne</button>
-    <button class="tab-btn" data-tab="applications">Aplikacje</button>
-    <button class="tab-btn" data-tab="learning">System uczenia</button>
-  </div>
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="general">
+      <span class="tab-icon">⚙️</span>
+      Ogolne
+    </button>
+    <button class="tab-btn" data-tab="applications">
+      <span class="tab-icon">💼</span>
+      Aplikacje
+    </button>
+    <button class="tab-btn" data-tab="learning">
+      <span class="tab-icon">🧠</span>
+      System uczenia
+    </button>
+  </nav>
 
   <!-- General Tab -->
   <div id="general-tab" class="tab-content active">
-    <h2>Klucz API Google Gemini</h2>
-    <div class="form-group">
-      <label for="api-key">Klucz API (wymagany do działania AI)</label>
-      <input type="password" id="api-key" placeholder="AIza...">
-      <button type="button" id="toggle-api-key" style="padding: 5px 10px;">👁️ Pokaż</button>
-      <p style="font-size: 0.9em; color: #666; margin-top: 5px;">
-        Uzyskaj klucz API na: <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a>
-      </p>
-      <p id="api-key-status" style="margin-top: 5px;"></p>
-    </div>
-    <hr style="margin: 20px 0;">
-
-    <h2>Twoje dane</h2>
-    <div id="data-container"></div>
-    <button id="add-row">Dodaj nowe pole</button>
-    <hr style="margin: 20px 0;">
-
-    <h2>CV</h2>
-    <div class="form-group">
-      <label for="cv-upload">Załącz CV (plik .pdf, .doc, .docx)</label>
-      <input type="file" id="cv-upload" accept=".pdf,.doc,.docx">
-      <p id="cv-status"></p>
-    </div>
-
-    <div class="form-group" style="margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 8px;">
-      <h3 style="margin-top: 0;">Wypełnianie formularzy z CV</h3>
-      <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
-        Gdy włączone, AI użyje danych z CV do wypełniania formularzy (doświadczenie, wykształcenie, umiejętności).
-      </p>
-
-      <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-        <input type="checkbox" id="use-cv-data" style="width: auto;">
-        <span>Używaj danych z CV przy wypełnianiu formularzy</span>
-      </label>
-
-      <div style="margin-top: 15px;">
-        <button id="analyze-cv" style="background: #2196F3; color: white; margin-right: 10px;">
-          🔍 Analizuj CV
-        </button>
-        <button id="view-cv-data" style="background: #4CAF50; color: white;" disabled>
-          📋 Podgląd danych
-        </button>
+    <!-- API Key Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🔑</div>
+        <div>
+          <div class="card-title">Klucz API Google Gemini</div>
+          <div class="card-subtitle">Wymagany do dzialania funkcji AI</div>
+        </div>
       </div>
-
-      <div id="cv-analysis-status" style="margin-top: 15px; padding: 10px; background: white; border-radius: 4px; border: 1px solid #ddd; display: none;">
-        <div style="font-weight: bold; margin-bottom: 5px;">Status analizy CV:</div>
-        <div id="cv-analysis-info"></div>
-      </div>
-    </div>
-
-    <hr style="margin: 20px 0;">
-
-    <div class="form-group" style="margin-top: 20px; padding: 15px; background: #f9f9f9; border-radius: 8px;">
-      <h3 style="margin-top: 0;">⚙️ Zaawansowane ustawienia AI</h3>
-      <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
-        Dostosuj prompt systemowy wysyłany do AI. Zaawansowana funkcja - zmieniaj tylko jeśli wiesz co robisz.
-      </p>
-
-      <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; margin-bottom: 10px;">
-        <input type="checkbox" id="use-custom-prompt" style="width: auto;">
-        <span>Użyj niestandardowego promptu</span>
-      </label>
-
-      <div id="custom-prompt-container" style="display: none;">
-        <label for="custom-prompt">Niestandardowy prompt systemowy:</label>
-        <textarea
-          id="custom-prompt"
-          style="width: 100%; min-height: 200px; font-family: monospace; font-size: 0.9em; padding: 10px; margin-top: 5px;"
-          placeholder="Wpisz swój niestandardowy prompt AI..."
-        ></textarea>
-        <p style="font-size: 0.85em; color: #999; margin-top: 5px;">
-          💡 Zmienne dostępne w prompcie: {contextData}, {questions}<br>
-          📝 Domyślny prompt będzie używany jeśli to pole jest puste
+      <div class="form-group">
+        <label class="form-label" for="api-key">Klucz API</label>
+        <div class="input-group">
+          <input type="password" id="api-key" class="form-input" placeholder="AIza...">
+          <button type="button" id="toggle-api-key" class="btn btn-secondary btn-icon" title="Pokaz/ukryj">
+            👁️
+          </button>
+        </div>
+        <p class="form-hint">
+          Uzyskaj klucz API na: <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a>
         </p>
       </div>
+      <div id="api-key-status"></div>
     </div>
 
-    <hr style="margin: 20px 0;">
-    <button id="save">Zapisz zmiany</button>
-    <p id="status"></p>
+    <!-- User Data Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">👤</div>
+        <div>
+          <div class="card-title">Twoje dane</div>
+          <div class="card-subtitle">Informacje uzywane do wypelniania formularzy</div>
+        </div>
+      </div>
+      <div id="data-container"></div>
+      <button id="add-row" class="btn btn-secondary">
+        <span>➕</span> Dodaj nowe pole
+      </button>
+    </div>
+
+    <!-- CV Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">📄</div>
+        <div>
+          <div class="card-title">CV</div>
+          <div class="card-subtitle">Zalacz swoje CV do analizy przez AI</div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="cv-upload">Zalacz plik CV</label>
+        <div class="file-upload" id="cv-dropzone">
+          <div class="file-upload-icon">📎</div>
+          <div class="file-upload-text">Kliknij lub przeciagnij plik CV</div>
+          <div class="file-upload-hint">PDF, DOC, DOCX (max 5MB)</div>
+        </div>
+        <input type="file" id="cv-upload" accept=".pdf,.doc,.docx" style="display: none;">
+        <p id="cv-status" class="form-hint" style="margin-top: 10px;"></p>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="form-group">
+        <label class="toggle-wrapper">
+          <div class="toggle">
+            <input type="checkbox" id="use-cv-data">
+            <span class="toggle-slider"></span>
+          </div>
+          <span class="toggle-label">Uzywaj danych z CV przy wypelnianiu formularzy</span>
+        </label>
+        <p class="form-hint">Gdy wlaczone, AI uzyje danych z CV (doswiadczenie, wyksztalcenie, umiejetnosci)</p>
+      </div>
+
+      <div class="btn-group">
+        <button id="analyze-cv" class="btn btn-info">
+          <span>🔍</span> Analizuj CV
+        </button>
+        <button id="view-cv-data" class="btn btn-primary" disabled>
+          <span>📋</span> Podglad danych
+        </button>
+      </div>
+
+      <div id="cv-analysis-status" class="status-message status-success" style="display: none;">
+        <span>✓</span>
+        <span id="cv-analysis-info"></span>
+      </div>
+    </div>
+
+    <!-- Advanced Settings Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🛠️</div>
+        <div>
+          <div class="card-title">Zaawansowane ustawienia AI</div>
+          <div class="card-subtitle">Dostosuj prompt systemowy wysylany do AI</div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="toggle-wrapper">
+          <div class="toggle">
+            <input type="checkbox" id="use-custom-prompt">
+            <span class="toggle-slider"></span>
+          </div>
+          <span class="toggle-label">Uzyj niestandardowego promptu</span>
+        </label>
+      </div>
+
+      <div id="custom-prompt-container" style="display: none;">
+        <div class="form-group">
+          <label class="form-label" for="custom-prompt">Niestandardowy prompt systemowy</label>
+          <textarea id="custom-prompt" class="form-input" placeholder="Wpisz swoj niestandardowy prompt AI..."></textarea>
+          <p class="form-hint">
+            💡 Zmienne dostepne w prompcie: {contextData}, {questions}<br>
+            📝 Domyslny prompt bedzie uzywany jesli to pole jest puste
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Save Button -->
+    <div class="btn-group">
+      <button id="save" class="btn btn-primary" style="padding: 14px 30px;">
+        <span>💾</span> Zapisz zmiany
+      </button>
+    </div>
+    <div id="status"></div>
   </div>
 
   <!-- Applications Tab -->
   <div id="applications-tab" class="tab-content">
     <div class="tracker-header">
-      <h2 style="margin: 0;">💼 Moje aplikacje</h2>
-      <button id="add-application-btn" class="btn-add">+ Dodaj aplikację</button>
+      <h2>💼 Moje aplikacje</h2>
+      <button id="add-application-btn" class="btn btn-primary">
+        <span>➕</span> Dodaj aplikacje
+      </button>
     </div>
 
     <!-- Search -->
     <div class="kanban-search">
-      <input type="text" id="search-applications" placeholder="🔍 Szukaj (firma, stanowisko, lokalizacja...)">
+      <input type="text" id="search-applications" placeholder="Szukaj (firma, stanowisko, lokalizacja...)">
     </div>
 
     <!-- Kanban Board -->
@@ -347,9 +1166,7 @@
           <h3>📝 Zaaplikowano</h3>
           <span class="kanban-count" id="count-applied">0</span>
         </div>
-        <div class="kanban-cards" id="kanban-applied" data-status="applied">
-          <!-- Cards populated dynamically -->
-        </div>
+        <div class="kanban-cards" id="kanban-applied" data-status="applied"></div>
       </div>
 
       <div class="kanban-column" data-status="interviews">
@@ -357,9 +1174,7 @@
           <h3>💬 Rozmowy</h3>
           <span class="kanban-count" id="count-interviews">0</span>
         </div>
-        <div class="kanban-cards" id="kanban-interviews" data-status="interviews">
-          <!-- Cards populated dynamically -->
-        </div>
+        <div class="kanban-cards" id="kanban-interviews" data-status="interviews"></div>
       </div>
 
       <div class="kanban-column" data-status="offer">
@@ -367,9 +1182,7 @@
           <h3>🎁 Oferta</h3>
           <span class="kanban-count" id="count-offer">0</span>
         </div>
-        <div class="kanban-cards" id="kanban-offer" data-status="offer">
-          <!-- Cards populated dynamically -->
-        </div>
+        <div class="kanban-cards" id="kanban-offer" data-status="offer"></div>
       </div>
 
       <div class="kanban-column" data-status="accepted">
@@ -377,9 +1190,7 @@
           <h3>✅ Zaakceptowana</h3>
           <span class="kanban-count" id="count-accepted">0</span>
         </div>
-        <div class="kanban-cards" id="kanban-accepted" data-status="accepted">
-          <!-- Cards populated dynamically -->
-        </div>
+        <div class="kanban-cards" id="kanban-accepted" data-status="accepted"></div>
       </div>
 
       <div class="kanban-column" data-status="rejected">
@@ -387,36 +1198,120 @@
           <h3>❌ Odrzucone</h3>
           <span class="kanban-count" id="count-rejected">0</span>
         </div>
-        <div class="kanban-cards" id="kanban-rejected" data-status="rejected">
-          <!-- Cards populated dynamically -->
-        </div>
+        <div class="kanban-cards" id="kanban-rejected" data-status="rejected"></div>
       </div>
     </div>
   </div>
 
   <!-- Learning Tab -->
   <div id="learning-tab" class="tab-content">
-    <h2>Wyuczone pytania 💡</h2>
-    <p style="color: #666; font-size: 0.9em;">
-      Rozszerzenie automatycznie uczy się pytań z formularzy i zapamiętuje Twoje odpowiedzi.
-    </p>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-icon">🧠</div>
+        <div>
+          <div class="card-title">Wyuczone pytania</div>
+          <div class="card-subtitle">Rozszerzenie automatycznie uczy sie pytan z formularzy i zapamietuje Twoje odpowiedzi</div>
+        </div>
+      </div>
 
-    <div class="learned-questions-controls">
-      <input type="text" id="question-search" placeholder="Szukaj pytania..." style="width: 300px; padding: 8px;">
-      <button id="refresh-questions">🔄 Odśwież</button>
-      <button id="export-questions">📥 Eksportuj</button>
-      <button id="import-questions">📤 Importuj</button>
-      <button id="clear-questions" style="background: #f44336; color: white;">🗑️ Wyczyść wszystkie</button>
-      <input type="file" id="import-file" accept=".json" style="display: none;">
+      <!-- Stats Bar -->
+      <div class="stats-bar">
+        <div class="stat-item">
+          <div class="stat-icon">📊</div>
+          <div>
+            <div class="stat-value" id="total-questions">0</div>
+            <div class="stat-label">Wszystkich pytan</div>
+          </div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-icon">🎯</div>
+          <div>
+            <div class="stat-value" id="avg-confidence">0%</div>
+            <div class="stat-label">Sredni confidence</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="controls-bar">
+        <input type="text" id="question-search" class="form-input" placeholder="🔍 Szukaj pytania...">
+        <button id="refresh-questions" class="btn btn-secondary btn-sm">
+          <span>🔄</span> Odswiez
+        </button>
+        <button id="export-questions" class="btn btn-secondary btn-sm">
+          <span>📥</span> Eksportuj
+        </button>
+        <button id="import-questions" class="btn btn-secondary btn-sm">
+          <span>📤</span> Importuj
+        </button>
+        <button id="clear-questions" class="btn btn-danger btn-sm">
+          <span>🗑️</span> Wyczysc wszystkie
+        </button>
+        <input type="file" id="import-file" accept=".json" style="display: none;">
+      </div>
     </div>
 
-    <div id="questions-stats" style="margin: 15px 0; padding: 10px; background: #f5f5f5; border-radius: 4px;">
-      <strong>Statystyki:</strong>
-      <span id="total-questions">0</span> pytań |
-      Średni confidence: <span id="avg-confidence">0%</span>
-    </div>
+    <div id="questions-list"></div>
+  </div>
 
-    <div id="questions-list" style="margin-top: 20px;"></div>
+  <!-- Modal Template for Applications -->
+  <div class="modal-overlay" id="application-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modal-title">Dodaj aplikacje</h3>
+        <button class="modal-close" id="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="app-job-title">Stanowisko *</label>
+          <input type="text" id="app-job-title" class="form-input" style="max-width: 100%;" placeholder="np. Frontend Developer">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="app-company">Firma *</label>
+          <input type="text" id="app-company" class="form-input" style="max-width: 100%;" placeholder="np. Google">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="app-location">Lokalizacja</label>
+          <input type="text" id="app-location" class="form-input" style="max-width: 100%;" placeholder="np. Warszawa, Remote">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="app-salary">Wynagrodzenie</label>
+          <input type="text" id="app-salary" class="form-input" style="max-width: 100%;" placeholder="np. 15000-20000 PLN">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="app-url">Link do oferty</label>
+          <input type="url" id="app-url" class="form-input" style="max-width: 100%;" placeholder="https://...">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="app-source">Zrodlo</label>
+          <input type="text" id="app-source" class="form-input" style="max-width: 100%;" placeholder="np. LinkedIn, Pracuj.pl">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="app-notes">Notatki</label>
+          <textarea id="app-notes" class="form-input" style="max-width: 100%; min-height: 80px;" placeholder="Dodatkowe informacje..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modal-cancel">Anuluj</button>
+        <button class="btn btn-primary" id="modal-save">Zapisz</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CV Data Modal -->
+  <div class="modal-overlay" id="cv-data-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Dane z CV</h3>
+        <button class="modal-close" id="cv-modal-close">&times;</button>
+      </div>
+      <div class="modal-body" id="cv-data-content">
+        <!-- CV data will be populated here -->
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cv-modal-ok">Zamknij</button>
+      </div>
+    </div>
   </div>
 
   <script src="ai.js"></script>
