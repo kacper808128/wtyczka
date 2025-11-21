@@ -307,19 +307,34 @@ function detectFieldType(element) {
 
   // DATEPICKER detection
   // Exclude common false positives like "gender" by checking more strictly
+  // Use word boundaries to avoid matching "candidate", "update", "mandate" etc.
   const dateIndicators = [
-    'date', 'calendar', 'picker', 'datepicker', 'fecha', 'datum',
-    'dostępność', 'availability', 'birth', 'urodzenia'
+    'calendar', 'picker', 'datepicker', 'fecha', 'datum',
+    'birth', 'urodzenia'
   ];
+  // These need word boundary matching to avoid false positives
+  const dateWordsNeedingBoundary = ['date', 'data', 'dostępność', 'availability'];
 
-  const hasDateClass = element.className && dateIndicators.some(ind =>
-    element.className.toLowerCase().includes(ind)
+  // Helper to check if a word exists with boundaries (not inside another word)
+  const hasWordWithBoundary = (text, word) => {
+    if (!text) return false;
+    const lowerText = text.toLowerCase();
+    // Match word at boundaries (start/end of string, or surrounded by non-word chars)
+    const regex = new RegExp(`(^|[^a-z])${word}([^a-z]|$)`, 'i');
+    return regex.test(lowerText);
+  };
+
+  const hasDateClass = element.className && (
+    dateIndicators.some(ind => element.className.toLowerCase().includes(ind)) ||
+    dateWordsNeedingBoundary.some(word => hasWordWithBoundary(element.className, word))
   );
-  const hasDateId = element.id && dateIndicators.some(ind =>
-    element.id.toLowerCase().includes(ind)
+  const hasDateId = element.id && (
+    dateIndicators.some(ind => element.id.toLowerCase().includes(ind)) ||
+    dateWordsNeedingBoundary.some(word => hasWordWithBoundary(element.id, word))
   );
-  const hasDatePlaceholder = element.placeholder && dateIndicators.some(ind =>
-    element.placeholder.toLowerCase().includes(ind)
+  const hasDatePlaceholder = element.placeholder && (
+    dateIndicators.some(ind => element.placeholder.toLowerCase().includes(ind)) ||
+    dateWordsNeedingBoundary.some(word => hasWordWithBoundary(element.placeholder, word))
   );
   const hasDateType = element.type === 'date' || element.type === 'datetime-local';
   const hasDatePattern = element.pattern && /date|dd|mm|yyyy/i.test(element.pattern);
