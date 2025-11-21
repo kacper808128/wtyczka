@@ -1312,7 +1312,6 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             const isTextarea = element.tagName === 'TEXTAREA';
 
             // Check if this input might have autocomplete/dropdown behavior
-            // If so, skip focus to avoid opening unwanted popups
             const mightHaveDropdown =
               element.getAttribute('role') === 'combobox' ||
               element.getAttribute('aria-haspopup') ||
@@ -1320,20 +1319,115 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               element.getAttribute('list') || // datalist
               /autocomplete|dropdown|select|combobox/i.test(element.className || '');
 
-            // Focus first - required for many frameworks (but skip for potential dropdowns)
-            if (!mightHaveDropdown) {
+            // Check if this is a search/autocomplete field that needs special handling
+            const isSearchField =
+              /search/i.test(element.placeholder || '') ||
+              /search|location|miasto|city|lokalizacja/i.test(element.className || '') ||
+              element.getAttribute('aria-autocomplete') === 'list';
+
+            // For search fields, we need to type and then select from dropdown
+            if (isSearchField) {
+              console.log(`[Gemini Filler] Detected search/autocomplete field, using typeahead approach`);
               element.focus();
-            }
+              await new Promise(resolve => setTimeout(resolve, 100));
+
+              // Type the value character by character or set it
+              const prototype = window.HTMLInputElement.prototype;
+              const nativeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+              if (nativeValueSetter) {
+                nativeValueSetter.call(element, answer);
+              } else {
+                element.value = answer;
+              }
+
+              // Dispatch input event to trigger autocomplete
+              element.dispatchEvent(new InputEvent('input', { bubbles: true, data: answer, inputType: 'insertText' }));
+              await new Promise(resolve => setTimeout(resolve, 500)); // Wait for dropdown
+
+              // Try to find and click a matching option in dropdown
+              const dropdownSelectors = [
+                '[role="listbox"] [role="option"]',
+                '[role="menu"] [role="menuitem"]',
+                '.dropdown-menu li',
+                '.autocomplete-results li',
+                '.suggestions li',
+                '.pac-container .pac-item', // Google Places
+                '[class*="dropdown"] [class*="option"]',
+                '[class*="dropdown"] li',
+                '[class*="menu"] li'
+              ];
+
+              let optionClicked = false;
+              for (const selector of dropdownSelectors) {
+                const options = document.querySelectorAll(selector);
+                if (options.length > 0) {
+                  console.log(`[Gemini Filler] Found ${options.length} dropdown options with selector: ${selector}`);
+                  // Find best matching option
+                  const answerLower = answer.toLowerCase();
+                  for (const opt of options) {
+                    const optText = opt.textContent?.toLowerCase() || '';
+                    if (optText.includes(answerLower) || answerLower.includes(optText.split(',')[0])) {
+                      console.log(`[Gemini Filler] Clicking autocomplete option: "${opt.textContent}"`);
+                      opt.click();
+                      optionClicked = true;
+                      break;
+                    }
+                  }
+                  if (!optionClicked && options.length > 0) {
+                    // If no match, click first option
+                    console.log(`[Gemini Filler] No exact match, clicking first option: "${options[0].textContent}"`);
+                    options[0].click();
+                    optionClicked = true;
+                  }
+                  if (optionClicked) break;
+                }
+              }
+
+              if (!optionClicked) {
+                console.log(`[Gemini Filler] No dropdown found, keeping typed value`);
+              }
+
+              aChangeWasMade = true;
+              filled = true;
+              console.log(`[Gemini Filler] Filled search field with: "${answer}"`);
+            } else {
+              // Regular text input handling
+              // Focus first - required for many frameworks (but skip for potential dropdowns)
+              if (!mightHaveDropdown) {
+                element.focus();
+              }
 
             if (isInput || isTextarea) {
+              // For number inputs, extract only numeric value
+              let valueToSet = answer;
+              if (element.type === 'number') {
+                // Extract numbers from answer (e.g., "15 tysięcy" -> "15000", "15k" -> "15000")
+                const numericMatch = answer.match(/[\d\s,.]+/);
+                if (numericMatch) {
+                  let numStr = numericMatch[0].replace(/\s/g, '').replace(',', '.');
+                  let num = parseFloat(numStr);
+
+                  // Handle "tysięcy/tysiące/k" multiplier
+                  if (/tysi|tys|k\b/i.test(answer) && num < 1000) {
+                    num = num * 1000;
+                  }
+
+                  valueToSet = num.toString();
+                  console.log(`[Gemini Filler] Converted "${answer}" to numeric value: ${valueToSet}`);
+                } else {
+                  console.warn(`[Gemini Filler] Could not extract number from "${answer}" for number input`);
+                  valueToSet = '';
+                }
+              }
+
               // Get native value setter (works with React/Vue/Angular)
               const prototype = isInput ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype;
               const nativeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
 
               if (nativeValueSetter) {
-                nativeValueSetter.call(element, answer);
+                nativeValueSetter.call(element, valueToSet);
               } else {
-                element.value = answer;
+                element.value = valueToSet;
               }
 
               // For React: dispatch InputEvent with inputType (React 16+ listens for this)
@@ -1341,7 +1435,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 bubbles: true,
                 cancelable: true,
                 inputType: 'insertText',
-                data: answer
+                data: valueToSet
               });
               element.dispatchEvent(inputEvent);
 
@@ -1378,6 +1472,7 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
             aChangeWasMade = true;
             filled = true;
             console.log(`[Gemini Filler] Filled text input with: "${answer}" (native setter used)`);
+            } // End of else block for non-search fields
           }
 
           // Only mark as processed if we actually filled it
