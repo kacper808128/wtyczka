@@ -1351,10 +1351,12 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
               /autocomplete|dropdown|select|combobox/i.test(element.className || '');
 
             // Check if this is a search/autocomplete field that needs special handling
-            const isSearchField =
-              /search/i.test(element.placeholder || '') ||
-              /search|location|miasto|city|lokalizacja/i.test(element.className || '') ||
-              element.getAttribute('aria-autocomplete') === 'list';
+            // Be more restrictive - only detect as search field if explicitly indicated
+            const hasSearchPlaceholder = /search|szukaj|wyszukaj/i.test(element.placeholder || '');
+            const hasSearchClass = /search|location-search|city-search|autocomplete-search/i.test(element.className || '');
+            const hasAriaAutocomplete = element.getAttribute('aria-autocomplete') === 'list' &&
+                                       /search|location|miasto|city|lokalizacja/i.test(element.placeholder || element.className || '');
+            const isSearchField = hasSearchPlaceholder || hasSearchClass || hasAriaAutocomplete;
 
             // For search fields, we need to type and then select from dropdown
             if (isSearchField) {
@@ -1463,6 +1465,14 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
                 for (const el of allElements) {
                   const text = el.textContent?.toLowerCase() || '';
                   const rect = el.getBoundingClientRect();
+
+                  // CRITICAL: Skip file/CV related elements to avoid triggering file dialogs
+                  const isFileRelated = /\.pdf|\.doc|\.docx|cv_|resume|upload|file|attachment/i.test(text) ||
+                                       el.closest('[data-test-id*="file"], [data-test-id*="cv"], [class*="file"], [class*="upload"], [class*="attachment"]');
+                  if (isFileRelated) {
+                    continue;
+                  }
+
                   // Element must be visible and contain our search term
                   if (rect.width > 0 && rect.height > 0 && rect.height < 100 &&
                       (text.includes(answerLower) || answerLower.includes(text.trim().split(',')[0]))) {
