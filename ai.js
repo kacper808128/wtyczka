@@ -591,7 +591,10 @@ function getMockAIResponse(question, userData, options) {
     answer = findUserDataValue(['imię', 'imie', 'firstName', 'first name', 'name', 'first']) || '';
   } else if (lowerQuestion.includes('last name') || lowerQuestion.includes('nazwisko')) {
     answer = findUserDataValue(['nazwisko', 'lastName', 'last name', 'surname', 'last']) || '';
-  } else if (lowerQuestion.includes('full name') || lowerQuestion.includes('pełne imię')) {
+  } else if (lowerQuestion.includes('full name') || lowerQuestion.includes('pełne imię') ||
+             lowerQuestion.includes('your name') || lowerQuestion.includes('twoje imię') ||
+             (lowerQuestion.includes('name') && !lowerQuestion.includes('first') && !lowerQuestion.includes('last') && !lowerQuestion.includes('company') && !lowerQuestion.includes('user'))) {
+    // "name" alone (without first/last) is typically full name
     const firstName = findUserDataValue(['imię', 'firstName', 'first name']);
     const lastName = findUserDataValue(['nazwisko', 'lastName', 'last name']);
     answer = [firstName, lastName].filter(Boolean).join(' ');

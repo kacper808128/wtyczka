@@ -1341,11 +1341,35 @@ async function fillFormWithAI(userData, processedElements = new Set(), depth = 0
 
       try {
         if (element.type === 'file') {
+          // Check if this looks like a CV/resume upload field
           const question = getQuestionForInput(element);
-          const keywords = ['cv', 'resume', 'życiorys', 'załącz', 'plik'];
-          if (question && keywords.some(keyword => question.toLowerCase().includes(keyword))) {
+          const inputName = (element.name || '').toLowerCase();
+          const inputId = (element.id || '').toLowerCase();
+          const accept = (element.accept || '').toLowerCase();
+
+          // Get surrounding container text for additional context
+          let containerText = '';
+          const container = element.closest('.js-drag-and-drop, .drag-and-drop, .file-upload, .upload-container, [class*="upload"], [class*="file"]');
+          if (container) {
+            containerText = container.textContent.toLowerCase();
+          }
+
+          const combinedText = `${question || ''} ${inputName} ${inputId} ${containerText}`.toLowerCase();
+
+          // Extended keywords for CV/resume file uploads
+          const keywords = ['cv', 'resume', 'życiorys', 'załącz', 'plik', 'upload', 'file', 'dokument', 'document', 'lebenslauf'];
+          const fileTypeIndicators = ['.doc', '.pdf', 'docx'];
+
+          // Check keywords in question/name/id OR check if it accepts doc/pdf files
+          const hasKeyword = keywords.some(kw => combinedText.includes(kw));
+          const acceptsResume = fileTypeIndicators.some(ft => accept.includes(ft));
+
+          if (hasKeyword || acceptsResume) {
+            console.log(`[Gemini Filler] File input detected as CV upload: question="${question}", name="${inputName}", accept="${accept}"`);
             await handleFileInput(element);
             processedElements.add(element);
+          } else {
+            console.log(`[Gemini Filler] File input skipped (not CV): question="${question}", name="${inputName}"`);
           }
           continue;
         }
